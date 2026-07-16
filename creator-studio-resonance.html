@@ -1,0 +1,482 @@
+
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title>Creator Studio — Project Resonance</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{
+    --bg:#09090f;--surface:#0f1017;--surface2:#161722;--surface3:#1e2030;
+    --border:#2a2d45;--text:#e8eaf6;--muted:#6b7280;
+    --orange:#f59e0b;--orange-dim:#92400e;
+    --purple:#7c3aed;--purple-bright:#a78bfa;
+    --blue:#3b82f6;--blue-bright:#93c5fd;
+    --green:#10b981;--red:#ef4444;--yellow:#eab308;
+    --writer-glow:rgba(245,158,11,0.35);
+    --designer-glow:rgba(124,58,237,0.35);
+  }
+  html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:-apple-system,"Segoe UI",system-ui,sans-serif}
+
+  /* ─── SCREENS ─── */
+  .screen{position:absolute;inset:0;display:none;flex-direction:column;overflow:hidden}
+  .screen.active{display:flex}
+
+  /* ══════════════════════════════
+     SPLASH SCREEN
+  ══════════════════════════════ */
+  #splash{background:radial-gradient(ellipse 120% 80% at 50% 40%,#0a1a3a 0%,#03050e 70%);align-items:center;justify-content:center;cursor:pointer}
+  .stars{position:absolute;inset:0;overflow:hidden}
+  .star{position:absolute;border-radius:50%;background:#fff;animation:twinkle linear infinite}
+  @keyframes twinkle{0%,100%{opacity:.1}50%{opacity:1}}
+  .planet{position:absolute;border-radius:50%;animation:orbit linear infinite}
+  @keyframes orbit{0%{transform:rotate(0deg) translateX(var(--r)) rotate(0deg)}100%{transform:rotate(360deg) translateX(var(--r)) rotate(-360deg)}}
+  .splash-center{text-align:center;z-index:10;position:relative}
+  .splash-glow{position:absolute;width:320px;height:320px;border-radius:50%;background:radial-gradient(circle,rgba(245,158,11,.5) 0%,transparent 70%);top:50%;left:50%;transform:translate(-50%,-50%);filter:blur(40px)}
+  .splash-title{font-size:clamp(3rem,8vw,6rem);font-weight:900;letter-spacing:.12em;text-transform:uppercase;background:linear-gradient(135deg,#f59e0b 0%,#fde68a 40%,#f59e0b 80%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;filter:drop-shadow(0 0 30px rgba(245,158,11,.8));position:relative}
+  .splash-subtitle{font-size:clamp(.7rem,2vw,1rem);letter-spacing:.4em;text-transform:uppercase;color:#93c5fd;margin-top:.5rem;opacity:.85}
+  .splash-tags{display:flex;gap:3rem;margin-top:3rem;flex-wrap:wrap;justify-content:center}
+  .splash-tag{text-align:center;font-size:.65rem;letter-spacing:.2em;text-transform:uppercase;color:rgba(255,255,255,.5)}
+  .splash-tag span{display:block;font-size:.5rem;color:rgba(255,255,255,.3);margin-top:.2rem}
+  .splash-enter{margin-top:3.5rem;padding:.8rem 2.5rem;border:1px solid rgba(245,158,11,.5);border-radius:30px;background:rgba(245,158,11,.08);color:#fde68a;font-size:.9rem;letter-spacing:.15em;text-transform:uppercase;cursor:pointer;transition:all .3s}
+  .splash-enter:hover{background:rgba(245,158,11,.18);border-color:#f59e0b;box-shadow:0 0 20px rgba(245,158,11,.4)}
+
+  /* orbital rings */
+  .ring{position:absolute;border-radius:50%;border:1px solid rgba(255,255,255,.06);top:50%;left:50%;transform:translate(-50%,-50%)}
+
+  /* ══════════════════════════════
+     PERSONA SELECTION
+  ══════════════════════════════ */
+  #persona{background:radial-gradient(ellipse 100% 100% at 50% 50%,#0d0e1f 0%,#060608 100%);align-items:center;justify-content:center;gap:0}
+  .persona-header{text-align:center;margin-bottom:3rem;z-index:2;position:relative}
+  .persona-header h1{font-size:clamp(1.4rem,3vw,2.2rem);font-weight:700;color:#fff}
+  .persona-header p{font-size:.85rem;color:var(--muted);margin-top:.4rem;letter-spacing:.05em}
+  .persona-cards{display:flex;gap:0;width:100%;max-width:900px;height:420px;border-radius:20px;overflow:hidden;position:relative;z-index:2}
+  .persona-card{flex:1;position:relative;cursor:pointer;transition:flex .4s ease,filter .3s;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:2rem}
+  .persona-card:hover{flex:1.4}
+  .persona-card.writer{background:radial-gradient(ellipse 120% 140% at 50% 80%,rgba(245,158,11,.25) 0%,#09090f 60%)}
+  .persona-card.designer{background:radial-gradient(ellipse 120% 140% at 50% 80%,rgba(124,58,237,.3) 0%,#09090f 60%)}
+  .persona-divider{position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--border);z-index:10}
+  .persona-card-glow{position:absolute;width:200px;height:200px;border-radius:50%;bottom:-40px;left:50%;transform:translateX(-50%);filter:blur(50px);pointer-events:none}
+  .writer .persona-card-glow{background:rgba(245,158,11,.5)}
+  .designer .persona-card-glow{background:rgba(124,58,237,.5)}
+  .chibi-area{flex:1;display:flex;align-items:center;justify-content:center;position:relative;width:100%}
+  .chibi{font-size:7rem;position:relative;z-index:2;filter:drop-shadow(0 0 20px currentColor)}
+  .chibi-floats{position:absolute;inset:0;pointer-events:none}
+  .float-item{position:absolute;font-size:1.4rem;animation:float-anim linear infinite;opacity:.7}
+  @keyframes float-anim{0%{transform:translateY(0) rotate(0deg);opacity:.3}50%{opacity:.8}100%{transform:translateY(-60px) rotate(20deg);opacity:.1}}
+  .persona-name{font-size:1.2rem;font-weight:700;color:#fff;text-align:center;z-index:2}
+  .persona-sub{font-size:.72rem;color:var(--muted);text-align:center;margin-top:.3rem;z-index:2;padding:0 1rem}
+  .persona-icon{font-size:1.1rem;margin-bottom:.5rem;z-index:2}
+  .persona-card-ring{position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:180px;height:12px;border-radius:50%;filter:blur(6px);opacity:.6}
+  .writer .persona-card-ring{background:radial-gradient(circle,var(--orange),transparent)}
+  .designer .persona-card-ring{background:radial-gradient(circle,var(--purple-bright),transparent)}
+
+  /* ══════════════════════════════
+     SHARED STUDIO LAYOUT
+  ══════════════════════════════ */
+  .studio{flex-direction:row;overflow:hidden}
+  .studio-topbar{position:absolute;top:0;left:0;right:0;height:42px;background:rgba(6,6,10,.9);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 1rem;gap:1rem;z-index:100;backdrop-filter:blur(8px)}
+  .topbar-logo{font-size:.75rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+  .topbar-mode{font-size:.7rem;padding:.2rem .7rem;border-radius:12px;font-weight:600;letter-spacing:.05em}
+  .topbar-mode.writer{background:rgba(245,158,11,.15);color:var(--orange);border:1px solid rgba(245,158,11,.3)}
+  .topbar-mode.designer{background:rgba(124,58,237,.15);color:var(--purple-bright);border:1px solid rgba(124,58,237,.3)}
+  .topbar-actions{margin-left:auto;display:flex;gap:.5rem;align-items:center}
+  .topbar-btn{padding:.25rem .8rem;border-radius:8px;font-size:.68rem;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;transition:all .2s}
+  .topbar-btn:hover{border-color:var(--blue);color:var(--blue-bright)}
+  .topbar-btn.switch{border-color:rgba(124,58,237,.4);color:var(--purple-bright)}
+  .topbar-btn.switch:hover{background:rgba(124,58,237,.15)}
+
+  .panels{display:flex;flex:1;margin-top:42px;height:calc(100% - 42px);gap:0}
+  .panel{flex:1;display:flex;flex-direction:column;border-right:1px solid var(--border);overflow:hidden;position:relative}
+  .panel:last-child{border-right:none}
+  .panel-header{padding:.6rem 1rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.5rem;background:rgba(0,0,0,.3);flex-shrink:0}
+  .panel-title{font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+  .panel-dot{width:7px;height:7px;border-radius:50%}
+  .panel-body{flex:1;overflow-y:auto;overflow-x:hidden;padding:1rem;display:flex;flex-direction:column;gap:.75rem}
+  .panel-body::-webkit-scrollbar{width:4px}
+  .panel-body::-webkit-scrollbar-track{background:transparent}
+  .panel-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+
+  /* ══════════════════════════════
+     WRITER — PANEL 1: MANUSCRIPT
+  ══════════════════════════════ */
+  .manuscript-toolbar{display:flex;gap:.3rem;padding:.5rem;background:var(--surface2);border-radius:8px;flex-wrap:wrap;flex-shrink:0}
+  .tb-btn{padding:.25rem .5rem;border:1px solid var(--border);border-radius:5px;background:transparent;color:var(--muted);font-size:.72rem;cursor:pointer;transition:all .2s}
+  .tb-btn:hover{background:var(--surface3);color:var(--text)}
+  .tb-btn.active{background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.4);color:var(--orange)}
+  .manuscript-editor{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:1.2rem;outline:none;color:var(--text);font-size:.85rem;line-height:1.8;resize:none;min-height:300px;font-family:Georgia,serif}
+  .manuscript-editor:focus{border-color:rgba(245,158,11,.4)}
+  .chapter-label{font-size:.65rem;text-transform:uppercase;letter-spacing:.15em;color:var(--orange);margin-bottom:.3rem}
+  .word-count{font-size:.62rem;color:var(--muted);text-align:right;margin-top:.3rem}
+
+  /* ══════════════════════════════
+     WRITER — PANEL 2: NODE MAP
+  ══════════════════════════════ */
+  .node-canvas{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;position:relative;overflow:hidden;min-height:300px}
+  .node-canvas svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  .story-node{position:absolute;border-radius:10px;padding:.5rem .8rem;font-size:.68rem;cursor:pointer;transition:all .3s;z-index:2;background:var(--surface2);border:2px solid var(--border);min-width:100px;text-align:center}
+  .story-node:hover{transform:scale(1.05)}
+  .story-node .node-label{font-weight:600;color:var(--text);margin-bottom:.2rem}
+  .story-node .node-type{font-size:.55rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
+  .story-node.status-ok{border-color:var(--border)}
+  .story-node.status-error{border-color:var(--red);box-shadow:0 0 12px rgba(239,68,68,.3);animation:pulse-red .5s ease infinite alternate}
+  @keyframes pulse-red{from{box-shadow:0 0 8px rgba(239,68,68,.2)}to{box-shadow:0 0 20px rgba(239,68,68,.5)}}
+  .story-node.status-pending{border-color:var(--yellow);box-shadow:0 0 12px rgba(234,179,8,.3);animation:pulse-yellow .8s ease infinite alternate}
+  @keyframes pulse-yellow{from{box-shadow:0 0 8px rgba(234,179,8,.2)}to{box-shadow:0 0 20px rgba(234,179,8,.5)}}
+  .story-node.status-approved{border-color:var(--green);box-shadow:0 0 10px rgba(16,185,129,.25)}
+  .node-action-popup{position:absolute;background:var(--surface3);border:1px solid var(--border);border-radius:10px;padding:.75rem;z-index:50;font-size:.7rem;min-width:180px;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+  .node-action-popup h4{font-size:.68rem;color:var(--text);margin-bottom:.5rem}
+  .node-action-popup .asset-preview{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:.4rem;font-size:.6rem;color:var(--muted);margin-bottom:.5rem;text-align:center}
+  .action-btns{display:flex;gap:.4rem}
+  .action-btn{flex:1;padding:.3rem;border-radius:6px;border:none;font-size:.65rem;font-weight:600;cursor:pointer;transition:all .2s}
+  .action-btn.approve{background:rgba(16,185,129,.2);color:var(--green);border:1px solid rgba(16,185,129,.4)}
+  .action-btn.approve:hover{background:rgba(16,185,129,.35)}
+  .action-btn.reject{background:rgba(239,68,68,.2);color:var(--red);border:1px solid rgba(239,68,68,.4)}
+  .action-btn.reject:hover{background:rgba(239,68,68,.35)}
+  .legend{display:flex;gap:.8rem;flex-wrap:wrap;padding:.5rem 0;flex-shrink:0}
+  .legend-item{display:flex;align-items:center;gap:.3rem;font-size:.58rem;color:var(--muted)}
+  .legend-dot{width:8px;height:8px;border-radius:50%}
+
+  /* ══════════════════════════════
+     DESIGNER — PANEL 1: DRAWING
+  ══════════════════════════════ */
+  .drawing-toolbar{display:flex;gap:.4rem;flex-wrap:wrap;padding:.5rem;background:var(--surface2);border-radius:8px;flex-shrink:0;align-items:center}
+  .tool-btn{width:32px;height:32px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:.85rem;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0}
+  .tool-btn:hover{background:var(--surface3);color:var(--text)}
+  .tool-btn.active{background:rgba(124,58,237,.15);border-color:rgba(124,58,237,.5);color:var(--purple-bright)}
+  .stroke-slider{width:60px;accent-color:var(--purple-bright)}
+  .color-swatches{display:flex;gap:.3rem;flex-wrap:wrap}
+  .swatch{width:18px;height:18px;border-radius:4px;cursor:pointer;border:2px solid transparent;transition:border-color .15s;flex-shrink:0}
+  .swatch.active{border-color:#fff}
+  .drawing-canvas-wrap{flex:1;position:relative;border-radius:8px;overflow:hidden;border:1px solid var(--border);background:#0d0e18;min-height:200px}
+  canvas#drawCanvas{display:block;width:100%;height:100%;cursor:crosshair;touch-action:none}
+  .canvas-actions{display:flex;gap:.4rem;flex-shrink:0}
+  .canvas-btn{padding:.3rem .8rem;border-radius:6px;font-size:.68rem;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;transition:all .2s}
+  .canvas-btn:hover{border-color:var(--purple-bright);color:var(--purple-bright)}
+  .canvas-btn.primary{background:rgba(124,58,237,.15);border-color:rgba(124,58,237,.4);color:var(--purple-bright)}
+
+  /* ══════════════════════════════
+     DESIGNER — PANEL 2: MOODBOARD
+  ══════════════════════════════ */
+  .moodboard-grid{display:grid;grid-template-columns:1fr 1fr;gap:.6rem;flex:1;overflow-y:auto}
+  .moodboard-grid::-webkit-scrollbar{width:3px}
+  .moodboard-grid::-webkit-scrollbar-thumb{background:var(--border)}
+  .asset-card{background:var(--surface2);border-radius:8px;overflow:hidden;border:2px solid var(--border);position:relative;cursor:pointer;transition:all .25s}
+  .asset-card:hover{transform:translateY(-2px);box-shadow:0 4px 16px rgba(0,0,0,.4)}
+  .asset-img{width:100%;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;font-size:2.5rem;background:var(--surface3)}
+  .asset-info{padding:.4rem .5rem}
+  .asset-name{font-size:.65rem;font-weight:600;color:var(--text)}
+  .asset-badge{display:inline-flex;align-items:center;gap:.25rem;font-size:.55rem;font-weight:600;padding:.15rem .4rem;border-radius:10px;margin-top:.2rem;text-transform:uppercase;letter-spacing:.05em}
+  .asset-badge.pending{background:rgba(234,179,8,.15);color:var(--yellow);border:1px solid rgba(234,179,8,.3)}
+  .asset-badge.approved{background:rgba(16,185,129,.15);color:var(--green);border:1px solid rgba(16,185,129,.3)}
+  .asset-badge.revision{background:rgba(239,68,68,.15);color:var(--red);border:1px solid rgba(239,68,68,.3)}
+  .asset-badge.draft{background:rgba(107,114,128,.15);color:var(--muted);border:1px solid rgba(107,114,128,.3)}
+  .asset-card.pending{border-color:rgba(234,179,8,.4)}
+  .asset-card.approved{border-color:rgba(16,185,129,.4)}
+  .asset-card.revision{border-color:rgba(239,68,68,.4)}
+  .submit-bar{display:flex;gap:.4rem;flex-shrink:0;align-items:center}
+  .submit-btn{flex:1;padding:.45rem;border-radius:8px;border:none;font-size:.72rem;font-weight:600;cursor:pointer;background:linear-gradient(135deg,var(--purple),#6d28d9);color:#fff;transition:all .2s;letter-spacing:.04em}
+  .submit-btn:hover{opacity:.85;transform:translateY(-1px)}
+  .submit-btn:disabled{opacity:.4;cursor:not-allowed;transform:none}
+
+  /* ══════════════════════════════
+     SHARED — PANEL 3: CHAT
+  ══════════════════════════════ */
+  .chat-messages{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:.5rem}
+  .chat-messages::-webkit-scrollbar{width:3px}
+  .chat-messages::-webkit-scrollbar-thumb{background:var(--border)}
+  .chat-msg{max-width:88%;padding:.5rem .7rem;border-radius:10px;font-size:.72rem;line-height:1.55;word-break:break-word}
+  .chat-msg.self{align-self:flex-end;background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.25);color:var(--blue-bright)}
+  .chat-msg.other{align-self:flex-start;background:var(--surface2);border:1px solid var(--border);color:var(--text)}
+  .chat-msg.ai{align-self:flex-start;background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.25);color:var(--purple-bright)}
+  .chat-msg.system{align-self:center;background:transparent;border:1px solid var(--border);color:var(--muted);font-size:.6rem;text-align:center;border-radius:20px;padding:.2rem .6rem}
+  .chat-msg-sender{font-size:.55rem;font-weight:700;margin-bottom:.2rem;text-transform:uppercase;letter-spacing:.05em;opacity:.7}
+  .chat-input-area{display:flex;gap:.4rem;flex-shrink:0;align-items:flex-end}
+  .chat-input{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:.45rem .7rem;color:var(--text);font-size:.75rem;outline:none;resize:none;min-height:36px;max-height:80px;font-family:inherit;transition:border-color .2s}
+  .chat-input:focus{border-color:var(--blue)}
+  .chat-send{width:34px;height:34px;border-radius:8px;border:none;background:var(--blue);color:#fff;cursor:pointer;font-size:.85rem;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0}
+  .chat-send:hover{background:#2563eb}
+  .prompt-tag{display:inline-flex;align-items:center;gap:.25rem;background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.3);border-radius:5px;padding:.15rem .4rem;font-size:.6rem;color:var(--purple-bright);margin-bottom:.3rem;cursor:pointer}
+  .prompt-tag:hover{background:rgba(124,58,237,.25)}
+  .ai-generate-btn{padding:.3rem .7rem;border-radius:6px;border:1px solid rgba(124,58,237,.4);background:rgba(124,58,237,.1);color:var(--purple-bright);font-size:.65rem;cursor:pointer;transition:all .2s;flex-shrink:0}
+  .ai-generate-btn:hover{background:rgba(124,58,237,.2)}
+
+  /* ══════════════════════════════
+     NOTIFICATION TOAST
+  ══════════════════════════════ */
+  #toast{position:fixed;bottom:1.5rem;right:1.5rem;background:var(--surface3);border:1px solid var(--border);border-radius:10px;padding:.7rem 1.1rem;font-size:.75rem;color:var(--text);z-index:9999;opacity:0;transform:translateY(10px);transition:all .3s;pointer-events:none;max-width:280px}
+  #toast.show{opacity:1;transform:translateY(0)}
+  #toast.success{border-color:rgba(16,185,129,.4);background:rgba(16,185,129,.1);color:var(--green)}
+  #toast.error{border-color:rgba(239,68,68,.4);background:rgba(239,68,68,.1);color:var(--red)}
+  #toast.info{border-color:rgba(59,130,246,.4);background:rgba(59,130,246,.1);color:var(--blue-bright)}
+
+  /* ══════════════════════════════
+     UTILITY
+  ══════════════════════════════ */
+  .divider{width:1px;background:var(--border);align-self:stretch;flex-shrink:0}
+  .badge-count{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:var(--red);color:#fff;font-size:.5rem;font-weight:700;margin-left:.3rem}
+  .empty-state{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.5rem;color:var(--muted);font-size:.75rem;text-align:center;padding:2rem}
+  .empty-state .empty-icon{font-size:2.5rem;opacity:.3}
+</style>
+</head>
+<body>
+
+
+<div id="splash" class="screen active">
+  <div class="stars" id="stars"></div>
+
+  
+  <div class="ring" style="width:500px;height:500px"></div>
+  <div class="ring" style="width:700px;height:700px;border-color:rgba(255,255,255,.04)"></div>
+  <div class="ring" style="width:900px;height:900px;border-color:rgba(255,255,255,.03)"></div>
+
+  
+  <div style="position:absolute;top:50%;left:50%;width:0;height:0">
+    <div style="position:absolute;width:52px;height:52px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#1e3a5f,#0a1a3a);box-shadow:0 0 15px #1e3a8a;animation:orbit 18s linear infinite;--r:250px;top:-26px;left:-26px"></div>
+    <div style="position:absolute;width:38px;height:38px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#3d1f6e,#1a0a30);box-shadow:0 0 12px #7c3aed;animation:orbit 25s linear infinite reverse;--r:350px;top:-19px;left:-19px"></div>
+    <div style="position:absolute;width:65px;height:65px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#1a2a0a,#0a1500);box-shadow:0 0 18px #166534;animation:orbit 35s linear infinite;--r:430px;top:-32px;left:-32px"></div>
+    <div style="position:absolute;width:44px;height:44px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#5c2a00,#2a1000);box-shadow:0 0 14px #d97706;animation:orbit 14s linear infinite;--r:180px;top:-22px;left:-22px"></div>
+  </div>
+
+  <div class="splash-glow"></div>
+  <div class="splash-center">
+    <div class="splash-title">Resonance</div>
+    <div class="splash-subtitle">Where Stories and Worlds Align</div>
+    <div class="splash-tags">
+      <div class="splash-tag">Imagination<span>Dream · Create · Inspire</span></div>
+      <div class="splash-tag">Characters<span>Create · Express · Connect</span></div>
+      <div class="splash-tag">Design<span>Build · Shape · Play</span></div>
+      <div class="splash-tag">Worlds<span>Explore · Discover · Belong</span></div>
+      <div class="splash-tag">Emotion<span>Feel · Empathize · Ignite</span></div>
+    </div>
+    <button class="splash-enter">Enter Creator Studio →</button>
+  </div>
+</div>
+
+
+<div id="persona" class="screen">
+  <div class="persona-header">
+    <h1>Who's using Creator Studio?</h1>
+    <p>Choose your persona to get started</p>
+  </div>
+  <div class="persona-cards">
+    <div class="persona-card writer">
+      <div class="persona-card-glow"></div>
+      <div class="chibi-area">
+        <div class="chibi-floats">
+          <span class="float-item" style="left:10%;top:30%;animation-duration:4s;animation-delay:0s">📖</span>
+          <span class="float-item" style="left:70%;top:20%;animation-duration:5s;animation-delay:1s">📄</span>
+          <span class="float-item" style="left:20%;top:65%;animation-duration:3.5s;animation-delay:.5s">✏️</span>
+          <span class="float-item" style="left:60%;top:55%;animation-duration:4.5s;animation-delay:2s">⭐</span>
+          <span class="float-item" style="left:80%;top:40%;animation-duration:3s;animation-delay:1.5s">📝</span>
+        </div>
+        <div class="chibi" style="color:var(--orange)">🧑‍💻</div>
+      </div>
+      <div class="persona-card-ring"></div>
+      <div class="persona-icon">✒️</div>
+      <div class="persona-name">Writer</div>
+      <div class="persona-sub">Craft stories, build worlds, and shape narratives.</div>
+    </div>
+    <div class="persona-divider"></div>
+    <div class="persona-card designer">
+      <div class="persona-card-glow"></div>
+      <div class="chibi-area">
+        <div class="chibi-floats">
+          <span class="float-item" style="left:15%;top:25%;animation-duration:4.5s;animation-delay:.3s">🎮</span>
+          <span class="float-item" style="left:65%;top:20%;animation-duration:3.8s;animation-delay:1.2s">⚔️</span>
+          <span class="float-item" style="left:25%;top:60%;animation-duration:5s;animation-delay:.8s">🧱</span>
+          <span class="float-item" style="left:70%;top:55%;animation-duration:3.5s;animation-delay:.1s">🌿</span>
+          <span class="float-item" style="left:80%;top:35%;animation-duration:4s;animation-delay:2.2s">💎</span>
+        </div>
+        <div class="chibi" style="color:var(--purple-bright)">🧑‍🎨</div>
+      </div>
+      <div class="persona-card-ring"></div>
+      <div class="persona-icon">🎮</div>
+      <div class="persona-name">Game Designer</div>
+      <div class="persona-sub">Design characters, worlds, and gameplay experiences.</div>
+    </div>
+  </div>
+</div>
+
+
+<div id="writerStudio" class="screen studio">
+  <div class="studio-topbar">
+    <span class="topbar-logo">Creator Studio</span>
+    <span class="topbar-mode writer">✒️ Writer Mode</span>
+    <div style="width:1px;height:16px;background:var(--border)"></div>
+    <span style="font-size:.68rem;color:var(--muted)">Project Resonance — Chapter I</span>
+    <div class="topbar-actions">
+      <button class="topbar-btn">💾 Save</button>
+      <button class="topbar-btn switch">⇄ Switch Persona</button>
+      <button class="topbar-btn" style="border-color:rgba(124,58,237,.4);color:var(--purple-bright)">View Designer →</button>
+    </div>
+  </div>
+  <div class="panels">
+    
+    <div class="panel" style="flex:1.1">
+      <div class="panel-header">
+        <div class="panel-dot" style="background:var(--orange)"></div>
+        <span class="panel-title">The Manuscript</span>
+        <span id="wc-badge" style="margin-left:auto;font-size:.6rem;color:var(--muted)">0 words</span>
+      </div>
+      <div class="panel-body">
+        <div class="chapter-label">Chapter I · The Awakening</div>
+        <div class="manuscript-toolbar">
+          <button class="tb-btn" title="Bold"><b>B</b></button>
+          <button class="tb-btn" title="Italic"><i>I</i></button>
+          <button class="tb-btn" title="Underline"><u>U</u></button>
+          <button class="tb-btn active" title="Paragraph">¶</button>
+          <button class="tb-btn" title="Heading">H1</button>
+          <button class="tb-btn" title="Quote">❝</button>
+          <button class="tb-btn" title="List">☰</button>
+        </div>
+        <div id="manuscript" class="manuscript-editor" style="flex:1">
+The city of <strong>Vaelthorn</strong> exhaled its final breath of warmth as the twin moons crested the obsidian cliffs. Sera had been running for three days straight — ever since the Resonance Stone had chosen her in the Hall of Echoes.
+
+She pressed her back against the cold wall of an alley, fingers curled around the glowing artifact. Its pulse matched her heartbeat: erratic, desperate, alive.
+
+"You can't outrun what you are," said a voice above her.
+
+She looked up. The figure on the rooftop was silhouetted against a sky bruised purple and gold — the colors of the dying Resonance itself.
+        </div>
+        <div class="word-count" id="wordCount">127 words · Auto-saved</div>
+      </div>
+    </div>
+
+    
+    <div class="panel" style="flex:1">
+      <div class="panel-header">
+        <div class="panel-dot" style="background:var(--blue)"></div>
+        <span class="panel-title">Narrative Node Map</span>
+        <span id="pending-badge" class="badge-count" style="display:none">1</span>
+      </div>
+      <div class="panel-body">
+        <div class="legend">
+          <div class="legend-item"><div class="legend-dot" style="background:var(--border)"></div>Normal</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div>Inconsistency</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--yellow)"></div>Pending Review</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div>Approved</div>
+        </div>
+        <div class="node-canvas" id="nodeCanvas">
+          <svg id="nodeEdges"></svg>
+          
+        </div>
+      </div>
+    </div>
+
+    
+    <div class="panel" style="flex:.85">
+      <div class="panel-header">
+        <div class="panel-dot" style="background:var(--purple-bright)"></div>
+        <span class="panel-title">Studio Chat &amp; AI Co-Pilot</span>
+      </div>
+      <div class="panel-body">
+        <div class="chat-messages" id="writerChat">
+          <div class="chat-msg ai"><div class="chat-msg-sender">AI Co-Pilot</div>Welcome, Writer! I'm your creative assistant. Ask me to brainstorm plot points, develop characters, or resolve story inconsistencies.</div>
+          <div class="chat-msg other"><div class="chat-msg-sender">Game Designer</div>Hey! I've submitted the concept art for Sera's Resonance Stone. Check your node map — it should show up as pending on the "Artifact Discovery" node.</div>
+          <div class="chat-msg system">— Asset submitted for approval · Resonance Stone Concept Art —</div>
+        </div>
+        <div style="display:flex;gap:.3rem;flex-wrap:wrap;padding:.3rem 0;flex-shrink:0">
+          <span class="prompt-tag">💡 Suggest plot twist</span>
+          <span class="prompt-tag">👤 Develop character</span>
+          <span class="prompt-tag">⚡ Add conflict</span>
+        </div>
+        <div class="chat-input-area">
+          <textarea class="chat-input" id="writerChatInput"></textarea>
+          <button class="chat-send">➤</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<div id="designerStudio" class="screen studio">
+  <div class="studio-topbar">
+    <span class="topbar-logo">Creator Studio</span>
+    <span class="topbar-mode designer">🎮 Designer Mode</span>
+    <div style="width:1px;height:16px;background:var(--border)"></div>
+    <span style="font-size:.68rem;color:var(--muted)">Project Resonance — Asset Library</span>
+    <div class="topbar-actions">
+      <button class="topbar-btn" style="border-color:rgba(245,158,11,.4);color:var(--orange)">← Writer View</button>
+      <button class="topbar-btn switch">⇄ Switch Persona</button>
+    </div>
+  </div>
+  <div class="panels">
+    
+    <div class="panel" style="flex:1.1">
+      <div class="panel-header">
+        <div class="panel-dot" style="background:var(--purple-bright)"></div>
+        <span class="panel-title">Drawing Studio</span>
+      </div>
+      <div class="panel-body">
+        <div class="drawing-toolbar">
+          <button class="tool-btn active" id="tool-pencil" title="Pencil">✏️</button>
+          <button class="tool-btn" id="tool-brush" title="Brush">🖌️</button>
+          <button class="tool-btn" id="tool-eraser" title="Eraser">🧹</button>
+          <button class="tool-btn" id="tool-line" title="Line">╱</button>
+          <div style="width:1px;height:20px;background:var(--border)"></div>
+          <input type="range" class="stroke-slider" id="strokeSize" title="Stroke size" />
+          <div style="width:1px;height:20px;background:var(--border)"></div>
+          <div class="color-swatches" id="colorSwatches"></div>
+        </div>
+        <div class="drawing-canvas-wrap">
+          
+        </div>
+        <div class="canvas-actions">
+          <button class="canvas-btn">🗑️ Clear</button>
+          <button class="canvas-btn">↩ Undo</button>
+          <button class="canvas-btn primary">+ Add to Moodboard</button>
+        </div>
+      </div>
+    </div>
+
+    
+    <div class="panel" style="flex:1">
+      <div class="panel-header">
+        <div class="panel-dot" style="background:var(--orange)"></div>
+        <span class="panel-title">Moodboard &amp; Asset Grid</span>
+      </div>
+      <div class="panel-body">
+        <div class="moodboard-grid" id="moodboardGrid">
+          
+        </div>
+        <div class="submit-bar">
+          <button class="submit-btn" id="submitBtn">Submit Selected to Writer →</button>
+        </div>
+      </div>
+    </div>
+
+    
+    <div class="panel" style="flex:.85">
+      <div class="panel-header">
+        <div class="panel-dot" style="background:var(--blue)"></div>
+        <span class="panel-title">Studio Chat &amp; Prompt Injection</span>
+      </div>
+      <div class="panel-body">
+        <div class="chat-messages" id="designerChat">
+          <div class="chat-msg ai"><div class="chat-msg-sender">AI Engine</div>Designer mode active. Type an image prompt and hit "Generate" to create assets, then drag them to your Moodboard.</div>
+          <div class="chat-msg other"><div class="chat-msg-sender">Writer</div>Could you design the Resonance Stone? It should feel ancient and powerful — glowing with a deep blue-gold energy.</div>
+          <div class="chat-msg self"><div class="chat-msg-sender">You</div>On it! Generating now — will submit once done.</div>
+          <div class="chat-msg system">— Resonance Stone Concept Art submitted for Writer approval —</div>
+          <div class="chat-msg other"><div class="chat-msg-sender">Writer</div>✅ Approved! Exactly what I envisioned. The glow matches the manuscript perfectly.</div>
+        </div>
+        <div class="chat-input-area">
+          <textarea class="chat-input" id="designerChatInput"></textarea>
+          <button class="ai-generate-btn">⚡ Generate</button>
+          <button class="chat-send">➤</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<div id="toast"></div>
+
+
+
+<footer style="position:fixed;bottom:0;left:0;right:0;text-align:center;font-size:11px;color:#3a3d55;padding:4px;background:rgba(6,6,10,.6);border-top:1px solid #1a1c2e;pointer-events:none;z-index:99999">Made with IBM Bob</footer>
+</body>
+</html>
