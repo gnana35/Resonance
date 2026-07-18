@@ -522,3 +522,135 @@ export const COLLECTIONS: Collection[] = [
   { id: "ui-icons", name: "UI / Icons", count: 64 },
   { id: "reference-inspo", name: "Reference & Inspo", count: 58 },
 ];
+
+export const AUDIO_FILTERS = [
+  "All",
+  "Music",
+  "SFX",
+  "Ambience",
+  "Vocals",
+  "Stingers",
+  "Loops",
+] as const;
+
+export type AudioFilter = (typeof AUDIO_FILTERS)[number];
+export type AudioTrackType = Exclude<AudioFilter, "All">;
+
+export type AudioTrack = {
+  id: string;
+  title: string;
+  artist: string;
+  type: AudioTrackType;
+  mood: string[];
+  bpmKey: string | null;
+  duration: string;
+  dateAdded: string;
+};
+
+export const AUDIO_TRACKS: AudioTrack[] = [
+  {
+    id: "aetherfall-main-theme",
+    title: "Aetherfall – Main Theme",
+    artist: "Luna Designer",
+    type: "Music",
+    mood: ["Epic", "Heroic"],
+    bpmKey: "128 BPM · Cmin",
+    duration: "02:45",
+    dateAdded: "May 16, 2025",
+  },
+  {
+    id: "whispers-in-the-ruins",
+    title: "Whispers in the Ruins",
+    artist: "Luna Designer",
+    type: "Music",
+    mood: ["Mysterious", "Dark"],
+    bpmKey: "90 BPM · Dm",
+    duration: "01:58",
+    dateAdded: "May 15, 2025",
+  },
+  {
+    id: "forest-of-echoes",
+    title: "Forest of Echoes",
+    artist: "Luna Designer",
+    type: "Music",
+    mood: ["Ambient", "Peaceful"],
+    bpmKey: "72 BPM · Gmaj",
+    duration: "03:12",
+    dateAdded: "May 15, 2025",
+  },
+  {
+    id: "clockwork-city-ambience",
+    title: "Clockwork City Ambience",
+    artist: "Luna Designer",
+    type: "Ambience",
+    mood: ["Industrial", "Steampunk"],
+    bpmKey: null,
+    duration: "04:30",
+    dateAdded: "May 14, 2025",
+  },
+  {
+    id: "battle-stinger-impact",
+    title: "Battle Stinger – Impact",
+    artist: "Luna Designer",
+    type: "Stingers",
+    mood: ["Intense", "Short"],
+    bpmKey: null,
+    duration: "00:03",
+    dateAdded: "May 14, 2025",
+  },
+  {
+    id: "magic-spell-cast-arcane",
+    title: "Magic Spell Cast – Arcane",
+    artist: "Luna Designer",
+    type: "SFX",
+    mood: ["Magical", "Mystical"],
+    bpmKey: null,
+    duration: "00:02",
+    dateAdded: "May 14, 2025",
+  },
+];
+
+export const RECENTLY_PLAYED_IDS = [
+  "aetherfall-main-theme",
+  "whispers-in-the-ruins",
+  "forest-of-echoes",
+  "battle-stinger-impact",
+];
+
+export type Playlist = { id: string; name: string; trackCount: number };
+
+export const PLAYLISTS: Playlist[] = [
+  { id: "echoes-of-aether", name: "Project: Echoes of Aether", trackCount: 24 },
+  { id: "boss-battles", name: "Boss Battles", trackCount: 12 },
+  { id: "exploration-travel", name: "Exploration & Travel", trackCount: 18 },
+  { id: "ui-menus", name: "UI & Menus", trackCount: 9 },
+];
+
+export type MusicTheme = {
+  id: string;
+  title: string;
+  tags: string[];
+  trackCount: number;
+};
+
+export const MUSIC_THEME_CARDS: MusicTheme[] = [
+  { id: "epic-fantasy", title: "Epic Fantasy", tags: ["Orchestral", "Heroic"], trackCount: 24 },
+  { id: "dark-mysterious", title: "Dark & Mysterious", tags: ["Cinematic", "Tense"], trackCount: 18 },
+  {
+    id: "ambient-exploration",
+    title: "Ambient Exploration",
+    tags: ["Ambient", "Atmospheric"],
+    trackCount: 22,
+  },
+  { id: "steampunk", title: "Steampunk", tags: ["Industrial", "Adventure"], trackCount: 16 },
+  { id: "peaceful-calm", title: "Peaceful & Calm", tags: ["Ambient", "Piano"], trackCount: 14 },
+];
+
+export type QuickTool = { id: string; title: string; description: string };
+
+export const AUDIO_QUICK_TOOLS: QuickTool[] = [
+  { id: "ai-music-generator", title: "AI Music Generator", description: "Generate custom music" },
+  { id: "stinger-generator", title: "Stinger Generator", description: "Create transition stingers" },
+  { id: "loop-builder", title: "Loop Builder", description: "Build seamless loops" },
+  { id: "bpm-finder", title: "BPM Finder", description: "Detect tempo & key" },
+];
