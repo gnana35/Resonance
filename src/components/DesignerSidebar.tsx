@@ -1,0 +1,90 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import {
+  CheckCircle2,
+  CloudUpload,
+  Folder,
+  Music,
+  Palette,
+  PenTool,
+  Settings,
+  Sparkles,
+  Image as ImageIcon,
+} from "lucide-react";
+
+const NAV_ITEMS = [
+  { href: "/designer", label: "Designer's Space", icon: Palette },
+  { href: "/designer/moodboard", label: "Moodboard", icon: ImageIcon },
+  { href: "/designer/sketchpad", label: "Sketchpad", icon: PenTool },
+  { href: "/designer/ai-muse", label: "AI Muse", icon: Sparkles },
+  { href: "/designer/assets", label: "Assets", icon: Folder },
+  { href: "/designer/audio-music", label: "Audio & Music", icon: Music },
+  { href: "/designer/approvals", label: "Approvals", icon: CheckCircle2 },
+  { href: "/designer/my-uploads", label: "My Uploads", icon: CloudUpload },
+  { href: "/designer/settings", label: "Settings", icon: Settings },
+];
+
+export function DesignerSidebar() {
+  const pathname = usePathname();
+
+  return (
+    <aside className="flex w-64 shrink-0 flex-col justify-between border-r border-violet-3/30 px-4 py-6 md:w-72">
+      <nav className="flex flex-col gap-1">
+        {NAV_ITEMS.map((item) => {
+          const isActive =
+            item.href === "/designer"
+              ? pathname === "/designer"
+              : pathname.startsWith(item.href);
+          const Icon = item.icon;
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`flex items-center gap-3 rounded-lg border-l-2 px-4 py-2.5 transition-colors ${
+                isActive
+                  ? "border-violet-2 bg-violet-2/10 text-violet-1"
+                  : "border-transparent text-ink/80 hover:border-violet-3/60 hover:bg-violet-2/5 hover:text-ink"
+              }`}
+            >
+              <Icon className="h-4 w-4" />
+              {item.label}
+            </Link>
+          );
+        })}
+      </nav>
+
+      <div className="mt-8 flex flex-col gap-4">
+        <div className="rounded-xl border border-violet-3/30 bg-bg-1 p-4">
+          <p className="text-sm text-ink/70">Active Project</p>
+          <button
+            onClick={() => console.log("switch project")}
+            className="mt-2 flex w-full items-center gap-3"
+          >
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-violet-2/15 font-display text-sm text-violet-1">
+              E
+            </div>
+            <span className="text-ink">Echoes of Aether</span>
+          </button>
+        </div>
+
+        <div className="rounded-xl border border-violet-3/30 bg-bg-1 p-4">
+          <p className="text-sm text-ink/70">Designer</p>
+          <button
+            onClick={() => console.log("designer profile")}
+            className="mt-2 flex w-full items-center gap-3"
+          >
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-violet-2/15 font-display text-sm text-violet-1">
+              L
+            </div>
+            <div className="text-left">
+              <p className="text-ink">Luna Designer</p>
+              <p className="text-xs text-ink/50">Pro Plan</p>
+            </div>
+          </button>
+        </div>
+      </div>
+    </aside>
+  );
+}

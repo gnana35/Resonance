@@ -4,6 +4,9 @@
   --gold-1: #f7e7b8;
   --gold-2: #d9a84e;
   --gold-3: #8a6a2f;
+  --violet-1: #e0d9f7;
+  --violet-2: #a78bfa;
+  --violet-3: #5b4d8f;
   --bg-0: #03040a;
   --bg-1: #0a0e1c;
   --ink: #cfd6e6;
@@ -13,6 +16,9 @@
   --color-gold-1: var(--gold-1);
   --color-gold-2: var(--gold-2);
   --color-gold-3: var(--gold-3);
+  --color-violet-1: var(--violet-1);
+  --color-violet-2: var(--violet-2);
+  --color-violet-3: var(--violet-3);
   --color-bg-0: var(--bg-0);
   --color-bg-1: var(--bg-1);
   --color-ink: var(--ink);
