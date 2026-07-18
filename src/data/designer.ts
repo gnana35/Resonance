@@ -69,3 +69,74 @@ export const SUBMISSIONS: Submission[] = [
 ];
 
 export const APPROVAL_COUNTS = { pending: 2, approved: 5, rejected: 1 };
+
+export const CORE_VIBE_IMAGES = [
+  "moonlit-castle",
+  "hooded-figure-street",
+  "candlelit-hall",
+  "violet-forest",
+  "warrior-in-mist",
+  "dark-treeline",
+];
+
+export type PaletteColor = { hex: string };
+
+export const COLOR_PALETTE: PaletteColor[] = [
+  { hex: "#6B4DFF" },
+  { hex: "#3D4C6B" },
+  { hex: "#232633" },
+  { hex: "#7A7F8C" },
+  { hex: "#E6E3DB" },
+];
+
+export const MOODBOARD_KEYWORDS = [
+  "Dark Fantasy",
+  "Mysterious",
+  "Epic",
+  "Ancient",
+  "Gothic",
+  "Magic",
+  "Melancholic",
+  "Heroic",
+  "Ethereal",
+  "Mythical",
+];
+
+export type MoodReference = MuseSuggestion;
+
+export const MOOD_REFERENCES: MoodReference[] = [
+  { id: "ethereal-battle", title: "Ethereal Battle", tags: ["Epic", "Orchestral"] },
+  { id: "mystic-forest", title: "Mystic Forest", tags: ["Ambient", "Mysterious"] },
+  { id: "ancient-kingdom", title: "Ancient Kingdom", tags: ["Cinematic", "Epic"] },
+  { id: "forgotten-ruins", title: "Forgotten Ruins", tags: ["Dark", "Haunting"] },
+  { id: "twilight-oath", title: "Twilight Oath", tags: ["Emotional", "Epic"] },
+];
+
+export type TextureReference = { id: string; label: string };
+
+export const TEXTURE_REFERENCES: TextureReference[] = [
+  { id: "weathered-stone", label: "Weathered Stone" },
+  { id: "dark-metal", label: "Dark Metal" },
+  { id: "worn-leather", label: "Worn Leather" },
+  { id: "arcane-glyphs", label: "Arcane Glyphs" },
+  { id: "cracked-earth", label: "Cracked Earth" },
+  { id: "tattered-fabric", label: "Tattered Fabric" },
+];
+
+export const AI_INSPIRATION_IMAGES = [
+  "generated-warrior-front",
+  "generated-warrior-back",
+  "generated-warrior-side",
+  "generated-blades",
+  "generated-landscape",
+];
+
+export type VibeBreakdownMetric = { label: string; value: number };
+
+export const VIBE_BREAKDOWN: VibeBreakdownMetric[] = [
+  { label: "Dark / Light", value: 82 },
+  { label: "Epic / Intimate", value: 74 },
+  { label: "Warm / Cool", value: 23 },
+  { label: "Modern / Ancient", value: 92 },
+  { label: "Chaos / Order", value: 48 },
+];
