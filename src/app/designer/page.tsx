@@ -6,21 +6,34 @@ import {
   ArrowRight,
   Check,
   ClipboardCheck,
+  Map as MapIcon,
+  Mountain,
+  Package,
   Pencil,
+  PenTool,
   Play,
   Sparkles,
   Sword,
   User,
 } from "lucide-react";
 import {
-  APPROVAL_COUNTS,
   DESIGN_PROGRESS,
   MOOD_SWATCHES,
   MOOD_TAGS,
   MUSIC_THEMES,
   OUTFIT_PROMPTS,
   SUBMISSIONS,
+  type SubmissionType,
 } from "@/data/designer";
+
+const TYPE_ICONS: Record<SubmissionType, typeof User> = {
+  "Concept Art": PenTool,
+  Weapon: Sword,
+  Character: User,
+  Map: MapIcon,
+  Prop: Package,
+  Environment: Mountain,
+};
 
 const RING_RADIUS = 40;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
@@ -29,6 +42,8 @@ const STATUS_STYLES: Record<string, string> = {
   Pending: "bg-amber-500/15 text-amber-300",
   Approved: "bg-emerald-500/15 text-emerald-300",
   Rejected: "bg-red-500/15 text-red-300",
+  "Needs Changes": "bg-violet-500/15 text-violet-300",
+  Draft: "bg-ink/10 text-ink/60",
 };
 
 export default function DesignerHome() {
@@ -220,19 +235,22 @@ export default function DesignerHome() {
 
           <div className="mt-4 flex gap-2">
             <span className="rounded-full bg-amber-500/15 px-3 py-1 text-xs text-amber-300">
-              Pending ({APPROVAL_COUNTS.pending})
+              Pending (
+              {SUBMISSIONS.filter((s) => s.status === "Pending").length})
             </span>
             <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs text-emerald-300">
-              Approved ({APPROVAL_COUNTS.approved})
+              Approved (
+              {SUBMISSIONS.filter((s) => s.status === "Approved").length})
             </span>
             <span className="rounded-full bg-red-500/15 px-3 py-1 text-xs text-red-300">
-              Rejected ({APPROVAL_COUNTS.rejected})
+              Rejected (
+              {SUBMISSIONS.filter((s) => s.status === "Rejected").length})
             </span>
           </div>
 
           <div className="mt-4 flex flex-col gap-3">
-            {SUBMISSIONS.map((submission) => {
-              const Icon = submission.kind === "character" ? User : Sword;
+            {SUBMISSIONS.slice(0, 2).map((submission) => {
+              const Icon = TYPE_ICONS[submission.type];
               return (
                 <div key={submission.id} className="flex items-center gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-violet-2/10 text-violet-2">
@@ -241,7 +259,7 @@ export default function DesignerHome() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-ink">{submission.title}</p>
                     <p className="text-sm text-ink/50">
-                      Submitted by {submission.submittedBy} · {submission.timeAgo}
+                      Submitted by {submission.submittedBy} · {submission.date}
                     </p>
                   </div>
                   <span

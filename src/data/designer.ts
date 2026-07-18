@@ -38,37 +38,188 @@ export const OUTFIT_PROMPTS: MuseSuggestion[] = [
   },
 ];
 
-export type SubmissionStatus = "Pending" | "Approved" | "Rejected";
+export type SubmissionStatus =
+  | "Pending"
+  | "Approved"
+  | "Rejected"
+  | "Needs Changes"
+  | "Draft";
+
+export type SubmissionType =
+  | "Concept Art"
+  | "Weapon"
+  | "Character"
+  | "Map"
+  | "Prop"
+  | "Environment";
 
 export type Submission = {
   id: string;
   title: string;
-  kind: "character" | "weapon";
+  description: string;
+  type: SubmissionType;
   submittedBy: string;
-  timeAgo: string;
+  date: string;
   status: SubmissionStatus;
+  notes: string;
 };
 
 export const SUBMISSIONS: Submission[] = [
   {
-    id: "kael-outfit",
-    title: "Character: Kael Outfit",
-    kind: "character",
-    submittedBy: "Luna",
-    timeAgo: "2h ago",
+    id: "castle-northreach-exterior",
+    title: "Castle Northreach – Exterior Concept",
+    description: "Main stronghold of the Aether Kingdom. Atmospheric exterior view.",
+    type: "Concept Art",
+    submittedBy: "Luna Designer",
+    date: "May 16, 2025 · 10:42 AM",
     status: "Pending",
+    notes: "Waiting for review",
   },
   {
-    id: "aether-blade",
-    title: "Weapon: Aether Blade",
-    kind: "weapon",
-    submittedBy: "Luna",
-    timeAgo: "5h ago",
+    id: "aether-blade-weapon",
+    title: "Aether Blade – Weapon Design",
+    description: "Three variations of the main sword. Includes charged state notes.",
+    type: "Weapon",
+    submittedBy: "Luna Designer",
+    date: "May 15, 2025 · 6:35 PM",
+    status: "Approved",
+    notes: "Approved by Orion Writer",
+  },
+  {
+    id: "wanderer-character-outfit",
+    title: "Wanderer – Character Outfit",
+    description: "Early outfit exploration for the main protagonist.",
+    type: "Character",
+    submittedBy: "Luna Designer",
+    date: "May 15, 2025 · 2:11 PM",
+    status: "Rejected",
+    notes: "Feedback provided",
+  },
+  {
+    id: "world-map-veldor",
+    title: "World Map – Veldor Region (Draft)",
+    description: "Top-down exploration map. Needs more landmarks.",
+    type: "Map",
+    submittedBy: "Luna Designer",
+    date: "May 14, 2025 · 9:08 AM",
+    status: "Needs Changes",
+    notes: "See 2 comments",
+  },
+  {
+    id: "mana-potion-prop",
+    title: "Mana Potion – Prop",
+    description: "Consumable item used to restore mana.",
+    type: "Prop",
+    submittedBy: "Luna Designer",
+    date: "May 13, 2025 · 4:22 PM",
+    status: "Approved",
+    notes: "Approved by Orion Writer",
+  },
+  {
+    id: "throne-room-interior",
+    title: "Throne Room – Interior Concept",
+    description: "Interior of the Aether Castle. Mood: grand and ominous.",
+    type: "Environment",
+    submittedBy: "Luna Designer",
+    date: "May 12, 2025 · 11:50 AM",
+    status: "Draft",
+    notes: "Not submitted",
+  },
+  {
+    id: "iron-ward-sentinel",
+    title: "Iron Ward Sentinel – Character Concept",
+    description: "Elite guard armor concept for the Iron Ward faction.",
+    type: "Character",
+    submittedBy: "Luna Designer",
+    date: "May 11, 2025 · 3:15 PM",
     status: "Pending",
+    notes: "Waiting for review",
+  },
+  {
+    id: "shrouded-dagger-weapon",
+    title: "Shrouded Dagger – Weapon Design",
+    description: "Concealed blade used by the Shrouded faction.",
+    type: "Weapon",
+    submittedBy: "Luna Designer",
+    date: "May 10, 2025 · 1:00 PM",
+    status: "Approved",
+    notes: "Approved by Orion Writer",
+  },
+  {
+    id: "silvergrove-map-draft",
+    title: "Silvergrove Map – Draft",
+    description: "Early pass on the ancient forest region.",
+    type: "Map",
+    submittedBy: "Luna Designer",
+    date: "May 9, 2025 · 8:45 AM",
+    status: "Draft",
+    notes: "Not submitted",
+  },
+  {
+    id: "aether-core-prop",
+    title: "Aether Core – Prop Concept",
+    description: "The central relic. Needs a clearer silhouette from behind.",
+    type: "Prop",
+    submittedBy: "Luna Designer",
+    date: "May 8, 2025 · 5:30 PM",
+    status: "Needs Changes",
+    notes: "See 1 comment",
+  },
+  {
+    id: "echoing-wastes-environment",
+    title: "The Echoing Wastes – Environment Concept",
+    description: "Scarred, unstable lands beyond Veyndor's borders.",
+    type: "Environment",
+    submittedBy: "Luna Designer",
+    date: "May 7, 2025 · 12:10 PM",
+    status: "Pending",
+    notes: "Waiting for review",
+  },
+  {
+    id: "council-robes-character",
+    title: "Council Robes – Character Concept",
+    description: "Ceremonial robes worn by Council members.",
+    type: "Character",
+    submittedBy: "Luna Designer",
+    date: "May 6, 2025 · 9:20 AM",
+    status: "Rejected",
+    notes: "Feedback provided",
   },
 ];
 
-export const APPROVAL_COUNTS = { pending: 2, approved: 5, rejected: 1 };
+export type ActivityAction = "approved" | "rejected" | "requested changes";
+
+export type ActivityEvent = {
+  id: string;
+  actor: string;
+  action: ActivityAction;
+  submissionTitle: string;
+  timeAgo: string;
+};
+
+export const RECENT_ACTIVITY: ActivityEvent[] = [
+  {
+    id: "1",
+    actor: "Orion Writer",
+    action: "approved",
+    submissionTitle: "Aether Blade – Weapon Design",
+    timeAgo: "2h ago",
+  },
+  {
+    id: "2",
+    actor: "Lyra Editor",
+    action: "requested changes",
+    submissionTitle: "World Map – Veldor Region (Draft)",
+    timeAgo: "4h ago",
+  },
+  {
+    id: "3",
+    actor: "Orion Writer",
+    action: "rejected",
+    submissionTitle: "Wanderer – Character Outfit",
+    timeAgo: "6h ago",
+  },
+];
 
 export const CORE_VIBE_IMAGES = [
   "moonlit-castle",
