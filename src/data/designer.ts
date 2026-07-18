@@ -366,3 +366,159 @@ export const OUTFIT_PROMPT_EXAMPLES: OutfitPromptExample[] = [
     tags: ["Stealthy", "Dark", "Agile"],
   },
 ];
+
+export type AssetStat = { label: string; value: number; delta: string };
+
+export const ASSET_STATS: AssetStat[] = [
+  { label: "Total Assets", value: 1248, delta: "+ 32 this week" },
+  { label: "Images", value: 842, delta: "+ 18 this week" },
+  { label: "Documents", value: 156, delta: "+ 6 this week" },
+  { label: "Audio", value: 89, delta: "+ 2 this week" },
+  { label: "Videos", value: 42, delta: "+ 6 this week" },
+  { label: "Other", value: 119, delta: "+ 0 this week" },
+];
+
+export const ASSET_CATEGORIES = [
+  "All Assets",
+  "Characters",
+  "Weapons",
+  "Environments",
+  "Props",
+  "Textures",
+  "Maps",
+  "Concept Art",
+  "Audio",
+  "UI Elements",
+  "Other",
+] as const;
+
+export type AssetCategory = (typeof ASSET_CATEGORIES)[number];
+
+export type RecentAsset = {
+  id: string;
+  filename: string;
+  fileType: string;
+  timeAgo: string;
+  category: AssetCategory;
+};
+
+export const RECENT_ASSETS: RecentAsset[] = [
+  {
+    id: "character-wanderer-v3",
+    filename: "character_wanderer_v3.png",
+    fileType: "PNG",
+    timeAgo: "2h ago",
+    category: "Characters",
+  },
+  {
+    id: "aether-blade-concepts",
+    filename: "aether_blade_concepts.png",
+    fileType: "PNG",
+    timeAgo: "5h ago",
+    category: "Weapons",
+  },
+  {
+    id: "castle-northreach",
+    filename: "castle_northreach.jpg",
+    fileType: "JPG",
+    timeAgo: "Yesterday",
+    category: "Environments",
+  },
+  {
+    id: "rock-cliff-texture",
+    filename: "rock_cliff_texture.png",
+    fileType: "PNG",
+    timeAgo: "Yesterday",
+    category: "Textures",
+  },
+  {
+    id: "world-map-draft-v2",
+    filename: "world_map_draft_v2.psd",
+    fileType: "PSD",
+    timeAgo: "2 days ago",
+    category: "Maps",
+  },
+  {
+    id: "mana-potion-prop",
+    filename: "mana_potion_prop.png",
+    fileType: "PNG",
+    timeAgo: "2 days ago",
+    category: "Props",
+  },
+];
+
+export type AssetFolder = { id: string; name: string; count: number };
+
+export const ASSET_FOLDERS: AssetFolder[] = [
+  { id: "characters", name: "Characters", count: 248 },
+  { id: "weapons", name: "Weapons", count: 132 },
+  { id: "environments", name: "Environments", count: 312 },
+  { id: "props", name: "Props", count: 186 },
+  { id: "textures", name: "Textures", count: 249 },
+  { id: "maps", name: "Maps", count: 48 },
+  { id: "concept-art", name: "Concept Art", count: 73 },
+];
+
+export type RecentFile = {
+  id: string;
+  filename: string;
+  path: string;
+  type: string;
+  size: string;
+  dateAdded: string;
+  addedBy: string;
+  category: AssetCategory;
+};
+
+export const RECENT_FILES: RecentFile[] = [
+  {
+    id: "ancient-ruins-environment",
+    filename: "ancient_ruins_environment.jpg",
+    path: "/Environments/Ancient Ruins/",
+    type: "JPG",
+    size: "5.6 MB",
+    dateAdded: "May 16, 2025",
+    addedBy: "Luna Designer",
+    category: "Environments",
+  },
+  {
+    id: "knight-sentinel-concept-v2",
+    filename: "knight_sentinel_concept_v2.png",
+    path: "/Characters/Knights/",
+    type: "PNG",
+    size: "3.2 MB",
+    dateAdded: "May 15, 2025",
+    addedBy: "Luna Designer",
+    category: "Characters",
+  },
+  {
+    id: "iron-shield-prop",
+    filename: "iron_shield_prop.png",
+    path: "/Props/Armor & Gear/",
+    type: "PNG",
+    size: "2.1 MB",
+    dateAdded: "May 14, 2025",
+    addedBy: "Luna Designer",
+    category: "Props",
+  },
+  {
+    id: "dark-fantasy-ambience",
+    filename: "dark_fantasy_ambience.mp3",
+    path: "/Audio/Ambience/",
+    type: "MP3",
+    size: "8.7 MB",
+    dateAdded: "May 14, 2025",
+    addedBy: "Luna Designer",
+    category: "Audio",
+  },
+];
+
+export type Collection = { id: string; name: string; count: number };
+
+export const COLLECTIONS: Collection[] = [
+  { id: "core-game-assets", name: "Core Game Assets", count: 342 },
+  { id: "chapter-1", name: "Chapter 1 - Aetherfall", count: 128 },
+  { id: "enemies-factions", name: "Enemies - Factions", count: 96 },
+  { id: "ui-icons", name: "UI / Icons", count: 64 },
+  { id: "reference-inspo", name: "Reference & Inspo", count: 58 },
+];
