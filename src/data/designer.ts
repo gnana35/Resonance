@@ -805,3 +805,202 @@ export const AUDIO_QUICK_TOOLS: QuickTool[] = [
   { id: "loop-builder", title: "Loop Builder", description: "Build seamless loops" },
   { id: "bpm-finder", title: "BPM Finder", description: "Detect tempo & key" },
 ];
+
+export const UPLOAD_CATEGORIES = [
+  "All Files",
+  "Images",
+  "Documents",
+  "Audio",
+  "Videos",
+  "Others",
+] as const;
+
+export type UploadCategory = (typeof UPLOAD_CATEGORIES)[number];
+export type FileCategory = Exclude<UploadCategory, "All Files">;
+
+export type UploadFile = {
+  id: string;
+  filename: string;
+  fileType: string;
+  category: FileCategory;
+  size: string;
+  dimensions?: string;
+  duration?: string;
+  dateAdded: string;
+};
+
+export const UPLOAD_FILES: UploadFile[] = [
+  {
+    id: "castle-northreach",
+    filename: "castle_northreach.jpg",
+    fileType: "JPG",
+    category: "Images",
+    size: "5.6 MB",
+    dimensions: "4096 x 2304",
+    dateAdded: "May 16, 2025",
+  },
+  {
+    id: "wanderer-concept-v3",
+    filename: "wanderer_concept_v3.png",
+    fileType: "PNG",
+    category: "Images",
+    size: "3.2 MB",
+    dimensions: "2000 x 2500",
+    dateAdded: "May 15, 2025",
+  },
+  {
+    id: "aether-blade-variants",
+    filename: "aether_blade_variants.png",
+    fileType: "PNG",
+    category: "Images",
+    size: "2.8 MB",
+    dimensions: "2400 x 1600",
+    dateAdded: "May 15, 2025",
+  },
+  {
+    id: "world-map-v2",
+    filename: "world_map_v2.psd",
+    fileType: "PSD",
+    category: "Images",
+    size: "45.8 MB",
+    dateAdded: "May 14, 2025",
+  },
+  {
+    id: "mana-potion-prop",
+    filename: "mana_potion_prop.png",
+    fileType: "PNG",
+    category: "Images",
+    size: "1.3 MB",
+    dimensions: "1024 x 1024",
+    dateAdded: "May 14, 2025",
+  },
+  {
+    id: "throne-room-interior",
+    filename: "throne_room_interior.jpg",
+    fileType: "JPG",
+    category: "Images",
+    size: "4.1 MB",
+    dimensions: "3840 x 2160",
+    dateAdded: "May 13, 2025",
+  },
+  {
+    id: "lore-notes-chapter1",
+    filename: "lore_notes_chapter1.pdf",
+    fileType: "PDF",
+    category: "Documents",
+    size: "2.7 MB",
+    dateAdded: "May 13, 2025",
+  },
+  {
+    id: "mystic-forest-env",
+    filename: "mystic_forest_env.jpg",
+    fileType: "JPG",
+    category: "Images",
+    size: "6.7 MB",
+    dimensions: "3840 x 2160",
+    dateAdded: "May 12, 2025",
+  },
+  {
+    id: "knight-armor-ref",
+    filename: "knight_armor_ref.png",
+    fileType: "PNG",
+    category: "Images",
+    size: "3.5 MB",
+    dimensions: "2000 x 2000",
+    dateAdded: "May 12, 2025",
+  },
+  {
+    id: "battle-theme-v1",
+    filename: "battle_theme_v1.mp3",
+    fileType: "MP3",
+    category: "Audio",
+    size: "8.7 MB",
+    duration: "03:12",
+    dateAdded: "May 11, 2025",
+  },
+  {
+    id: "design-brief",
+    filename: "design_brief.docx",
+    fileType: "DOCX",
+    category: "Documents",
+    size: "156 KB",
+    dateAdded: "May 10, 2025",
+  },
+  {
+    id: "project-outline",
+    filename: "project_outline.pdf",
+    fileType: "PDF",
+    category: "Documents",
+    size: "612 KB",
+    dateAdded: "May 10, 2025",
+  },
+  {
+    id: "budget-estimate",
+    filename: "budget_estimate.xlsx",
+    fileType: "XLSX",
+    category: "Documents",
+    size: "48 KB",
+    dateAdded: "May 9, 2025",
+  },
+  {
+    id: "cinematic-trailer",
+    filename: "cinematic_trailer.mp4",
+    fileType: "MP4",
+    category: "Videos",
+    size: "78.4 MB",
+    dimensions: "1920 x 1080",
+    duration: "01:24",
+    dateAdded: "May 9, 2025",
+  },
+  {
+    id: "rock-cliff-texture",
+    filename: "rock_cliff_texture.png",
+    fileType: "PNG",
+    category: "Images",
+    size: "6.2 MB",
+    dimensions: "2048 x 2048",
+    dateAdded: "May 9, 2025",
+  },
+];
+
+export type UploadFolder = { id: string; name: string; fileCount: number };
+
+export const UPLOAD_FOLDERS: UploadFolder[] = [
+  { id: "concept-art", name: "Concept Art", fileCount: 128 },
+  { id: "references", name: "References", fileCount: 94 },
+  { id: "textures", name: "Textures", fileCount: 76 },
+  { id: "audio-folder", name: "Audio", fileCount: 42 },
+  { id: "documents-folder", name: "Documents", fileCount: 33 },
+  { id: "other-folder", name: "Other", fileCount: 17 },
+];
+
+export type StorageBreakdownItem = { label: string; gb: number; color: string };
+
+export const STORAGE_BREAKDOWN: StorageBreakdownItem[] = [
+  { label: "Images", gb: 36.4, color: "#8b5cf6" },
+  { label: "Documents", gb: 12.6, color: "#3b82f6" },
+  { label: "Audio", gb: 8.7, color: "#22c55e" },
+  { label: "Videos", gb: 6.1, color: "#f97316" },
+  { label: "Others", gb: 4.4, color: "#ec4899" },
+];
+
+export const STORAGE_TOTAL_GB = 100;
+
+export type RecentUpload = { fileId: string; timeAgo: string };
+
+export const RECENT_UPLOADS: RecentUpload[] = [
+  { fileId: "throne-room-interior", timeAgo: "2m ago" },
+  { fileId: "aether-blade-variants", timeAgo: "35m ago" },
+  { fileId: "lore-notes-chapter1", timeAgo: "1h ago" },
+  { fileId: "battle-theme-v1", timeAgo: "2h ago" },
+  { fileId: "wanderer-concept-v3", timeAgo: "3h ago" },
+];
+
+export type UploadQuickAction = { id: string; title: string; description: string };
+
+export const UPLOAD_QUICK_ACTIONS: UploadQuickAction[] = [
+  { id: "upload-files", title: "Upload Files", description: "Drag and drop or browse" },
+  { id: "create-folder", title: "Create New Folder", description: "Organize your uploads" },
+  { id: "share-link", title: "Share Link", description: "Share files with your team" },
+  { id: "move-to-folder", title: "Move to Folder", description: "Organize files easily" },
+];
