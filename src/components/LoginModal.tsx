@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, Eye, EyeOff, Lock, Mail, X } from "lucide-react";
+import { signInWithPopup } from "firebase/auth";
+import { auth, googleProvider } from "@/lib/firebase";
 
 function GoogleIcon() {
   return (
@@ -48,6 +50,8 @@ export function LoginModal({
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [googleError, setGoogleError] = useState<string | null>(null);
 
   function proceedToOnboarding() {
     onClose();
@@ -58,6 +62,22 @@ export function LoginModal({
     e.preventDefault();
     console.log("login attempt", { email, rememberMe });
     proceedToOnboarding();
+  }
+
+  async function handleGoogleSignIn() {
+    setGoogleError(null);
+    setGoogleLoading(true);
+    try {
+      await signInWithPopup(auth, googleProvider);
+      onClose();
+      router.push("/onboarding");
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Google sign-in failed.";
+      setGoogleError(message);
+    } finally {
+      setGoogleLoading(false);
+    }
   }
 
   return (
@@ -185,12 +205,16 @@ export function LoginModal({
             <div className="flex flex-col gap-3">
               <button
                 type="button"
-                onClick={proceedToOnboarding}
-                className="flex items-center justify-center gap-3 rounded-full border border-gold-3/40 py-3 text-ink transition-colors hover:border-gold-2/70"
+                onClick={handleGoogleSignIn}
+                disabled={googleLoading}
+                className="flex items-center justify-center gap-3 rounded-full border border-gold-3/40 py-3 text-ink transition-colors hover:border-gold-2/70 disabled:opacity-50"
               >
                 <GoogleIcon />
-                Continue with Google
+                {googleLoading ? "Signing in…" : "Continue with Google"}
               </button>
+              {googleError && (
+                <p className="text-center text-xs text-red-400">{googleError}</p>
+              )}
               <button
                 type="button"
                 onClick={proceedToOnboarding}
