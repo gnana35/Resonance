@@ -1004,3 +1004,377 @@ export const UPLOAD_QUICK_ACTIONS: UploadQuickAction[] = [
   { id: "share-link", title: "Share Link", description: "Share files with your team" },
   { id: "move-to-folder", title: "Move to Folder", description: "Organize files easily" },
 ];
+
+
+// ─── Analysis / Visual Consistency ──────────────────────────────────────────
+
+export type IssueSeverity = "Critical" | "Warning" | "Resolved";
+
+export type VisualIssue = {
+  id: string;
+  title: string;
+  category: string;
+  description: string;
+  severity: IssueSeverity;
+  /** seed for approved/previous artwork placeholder */
+  approvedSeed: string;
+  /** seed for new artwork placeholder */
+  newSeed: string;
+  /** optional extra comparison content — for color drift row etc. */
+  colorDrift?: { refHex: string; refName: string; newHex: string; newName: string; diff: string };
+  /** scale comparison labels */
+  scaleDrift?: { prev: string; current: string };
+  aiRecommendation?: string;
+  /** label above approved image */
+  approvedLabel?: string;
+  /** label above new image */
+  newLabel?: string;
+};
+
+export const VISUAL_ISSUES: VisualIssue[] = [
+  {
+    id: "hair-length",
+    title: "Hair Length Changed",
+    category: "Character Appearance",
+    description: "Approved design shows shoulder-length hair, but new artwork has short hair.",
+    severity: "Critical",
+    approvedSeed: "hair-approved",
+    newSeed: "hair-new",
+    approvedLabel: "Approved Design",
+    newLabel: "New Artwork",
+    aiRecommendation: "Use the approved hairstyle unless the story indicates a haircut.",
+  },
+  {
+    id: "outfit-detail",
+    title: "Outfit Detail Drift",
+    category: "Clothing & Accessories",
+    description: "Cape clasp is different from previous approved designs.",
+    severity: "Warning",
+    approvedSeed: "outfit-approved",
+    newSeed: "outfit-new",
+    approvedLabel: "Previous Art",
+    newLabel: "New Artwork",
+  },
+  {
+    id: "color-drift",
+    title: "Color Drift",
+    category: "Color & Palette",
+    description: "Primary cloak color is outside of the approved color range.",
+    severity: "Warning",
+    approvedSeed: "color-approved",
+    newSeed: "color-new",
+    approvedLabel: "Reference",
+    newLabel: "New Artwork",
+    colorDrift: {
+      refHex: "#7C1F26",
+      refName: "Deep Crimson",
+      newHex: "#C62F32",
+      newName: "Bright Scarlet",
+      diff: "18%",
+    },
+  },
+  {
+    id: "weapon-design",
+    title: "Weapon Design Changed",
+    category: "Weapon & Props",
+    description: "Aether Blade has 3 runes in approved art, but new artwork shows 5 runes.",
+    severity: "Critical",
+    approvedSeed: "weapon-approved",
+    newSeed: "weapon-new",
+    approvedLabel: "Approved Design",
+    newLabel: "New Artwork",
+  },
+  {
+    id: "facial-feature",
+    title: "Facial Feature Mismatch",
+    category: "Character Details",
+    description: "Scar is on the left eye in approved art, but on the right cheek in new artwork.",
+    severity: "Critical",
+    approvedSeed: "facial-approved",
+    newSeed: "facial-new",
+    approvedLabel: "Approved Design",
+    newLabel: "New Artwork",
+  },
+  {
+    id: "scale-inconsistency",
+    title: "Scale Inconsistency",
+    category: "Proportions & Scale",
+    description: "Character height differs significantly from approved scale compared to other characters.",
+    severity: "Warning",
+    approvedSeed: "scale-approved",
+    newSeed: "scale-new",
+    approvedLabel: "Previous",
+    newLabel: "Current",
+    scaleDrift: { prev: "178 cm", current: "165 cm" },
+  },
+];
+
+export const VISUAL_CONSISTENCY_SCORE = 96;
+export const VISUAL_CONSISTENCY_SCAN_DATE = "May 18, 2025 · 11:42 AM";
+export const VISUAL_CONSISTENCY_SCAN_BY = "Aravinda";
+export const VISUAL_CONSISTENCY_DELTA = "+4% from last scan";
+
+export const VISUAL_COMPARED_AGAINST = [
+  "Character Sheet",
+  "Outfit Sheet",
+  "Chapter 1 Illustrations",
+  "Chapter 3 Illustrations",
+  "Marketing Poster",
+  "World Bible",
+];
+
+export const VISUAL_SCANNING_AGAINST = [
+  "Character Sheet",
+  "Outfit Concept V2",
+  "Chapter 1 Illustration",
+  "Promotional Artwork",
+];
+
+// Detail page — Visual Inconsistency (the clickable issue on the Visual Consistency page)
+export type VisualInconsistencyDetail = {
+  id: string;
+  title: string;
+  category: string;
+  description: string;
+  severity: IssueSeverity;
+  approvedSeed: string;
+  newSeed: string;
+  aiRecommendation: string;
+  approvedLabel: string;
+  newLabel: string;
+};
+
+export const VISUAL_INCONSISTENCY_DETAIL: VisualInconsistencyDetail = {
+  id: "hair-length",
+  title: "Hair Length Changed",
+  category: "Character Appearance",
+  description:
+    "Approved design shows shoulder-length hair, but new artwork has short hair. This inconsistency may confuse readers if no in-story explanation is given.",
+  severity: "Critical",
+  approvedSeed: "hair-approved",
+  newSeed: "hair-new",
+  approvedLabel: "Approved Design",
+  newLabel: "New Artwork",
+  aiRecommendation:
+    "Use the approved hairstyle unless the story indicates a haircut. If the change is intentional, update the character sheet to reflect the new design and mark as resolved.",
+};
+
+// ─── Analysis — Chapter list page ────────────────────────────────────────────
+
+export type AnalysisIssue = {
+  id: string;
+  title: string;
+  description: string;
+  severity: IssueSeverity;
+  imageId?: string;
+};
+
+export type AnalysisChapter = {
+  id: string;
+  number: number;
+  title: string;
+  issues: AnalysisIssue[];
+  expanded?: boolean;
+};
+
+export const ANALYSIS_CHAPTERS: AnalysisChapter[] = [
+  {
+    id: "chap-4",
+    number: 4,
+    title: "The Silver & the Gold",
+    expanded: true,
+    issues: [
+      {
+        id: "visual-inconsistency",
+        title: "Visual Inconsistency",
+        description: "Story says the ring is silver, but artwork shows it as gold.",
+        severity: "Critical",
+        imageId: "ring-artwork",
+      },
+      {
+        id: "dialogue-mismatch-4",
+        title: "Dialogue Mismatch",
+        description: "Character name used in dialogue doesn't match character list.",
+        severity: "Warning",
+      },
+    ],
+  },
+  {
+    id: "chap-6",
+    number: 6,
+    title: "The Frozen Eclipse",
+    issues: [
+      {
+        id: "lore-conflict-6",
+        title: "Lore Conflict",
+        description: "Chapter references a destroyed artifact that reappears later.",
+        severity: "Warning",
+      },
+    ],
+  },
+  {
+    id: "chap-7",
+    number: 7,
+    title: "Fractures",
+    issues: [
+      {
+        id: "timeline-inconsistency-7",
+        title: "Timeline Inconsistency",
+        description: "Scene is set at dusk but follows a midday scene in the same location.",
+        severity: "Warning",
+      },
+      {
+        id: "character-appearance-7",
+        title: "Character Appearance",
+        description: "Hair color described as black doesn't match illustration.",
+        severity: "Critical",
+      },
+    ],
+  },
+  {
+    id: "chap-9",
+    number: 9,
+    title: "The Council's Gate",
+    issues: [
+      {
+        id: "lore-conflict-9",
+        title: "Lore Conflict",
+        description: "Council is described as having five members but seven are shown.",
+        severity: "Resolved",
+      },
+    ],
+  },
+  {
+    id: "chap-12",
+    number: 12,
+    title: "Fanfare and Farewells",
+    issues: [
+      {
+        id: "dialogue-mismatch-12",
+        title: "Dialogue Mismatch",
+        description: "Farewell speech references an event that hasn't occurred yet.",
+        severity: "Resolved",
+      },
+    ],
+  },
+];
+
+export type RecentlyUpdatedIssue = {
+  issueId: string;
+  issueTitle: string;
+  chapterTitle: string;
+  timeAgo: string;
+  imageId?: string;
+};
+
+export const RECENTLY_UPDATED_ISSUES: RecentlyUpdatedIssue[] = [
+  { issueId: "visual-inconsistency", issueTitle: "Visual Inconsistency", chapterTitle: "Chapter 4", timeAgo: "Just now", imageId: "ring-artwork" },
+  { issueId: "dialogue-mismatch-4",  issueTitle: "Dialogue Mismatch",    chapterTitle: "Chapter 4", timeAgo: "15m ago" },
+  { issueId: "lore-conflict-9",      issueTitle: "Lore Conflict",         chapterTitle: "Chapter 9", timeAgo: "1h ago" },
+];
+
+// ─── Notifications ───────────────────────────────────────────────────────────
+
+export type NotificationType = "AI Notice" | "AI Update" | "Approval" | "Reminder";
+export type NotificationCategory =
+  | "New World Detail"
+  | "Unused Detail"
+  | "World Bible Synced"
+  | "Approval Request"
+  | "Writing Reminder";
+
+export type NotificationItem = {
+  id: string;
+  title: string;
+  summary: string;
+  type: NotificationType;
+  category: NotificationCategory;
+  timeAgo: string;
+  read: boolean;
+  /** If true this notification is the expanded "hero" one at the top */
+  featured?: boolean;
+  detectedIn?: string;
+  detectedDetail?: { label: string; tag: string };
+  firstSeen?: string;
+  detectedInFiles?: string;
+  whyItMatters?: string;
+  artworkSeed?: string;
+  artifactLabel?: string;
+  artifactType?: string;
+  addToWorldLabel?: string;
+  statusDot?: "warning" | "success";
+};
+
+export const NOTIFICATIONS: NotificationItem[] = [
+  {
+    id: "notif-1",
+    title: "AI Notice: New Detail Detected in Artwork",
+    summary:
+      "The AI has detected a detail in the artwork that isn't mentioned in the story or world bible. This could be an intentional addition to your world!",
+    type: "AI Notice",
+    category: "New World Detail",
+    timeAgo: "Just now",
+    read: false,
+    featured: true,
+    detectedIn: "Artwork",
+    detectedDetail: { label: "Broken Tower", tag: "Structure" },
+    firstSeen: "May 18, 2025 – 11:42 AM",
+    detectedInFiles: "Chapter 4 – The Silver & the Gold\nArtwork_Chapter4_Castle_v2.png",
+    whyItMatters:
+      "Small details shape your world. Adding this now keeps your story, artwork, and world bible in sync.",
+    artworkSeed: "castle-artwork-preview",
+    artifactLabel: "Broken Tower",
+    artifactType: "Structure",
+    addToWorldLabel: "Add Broken Tower to World",
+  },
+  {
+    id: "notif-2",
+    title: "AI Notice: Unused Detail in Story",
+    summary: "An item in the story hasn't appeared in any artwork yet.",
+    type: "AI Notice",
+    category: "Unused Detail",
+    timeAgo: "2h ago",
+    read: false,
+    statusDot: "warning",
+  },
+  {
+    id: "notif-3",
+    title: "AI Update: World Bible Synced",
+    summary: "12 new details added from your latest approvals.",
+    type: "AI Update",
+    category: "World Bible Synced",
+    timeAgo: "Yesterday",
+    read: true,
+    statusDot: "success",
+  },
+  {
+    id: "notif-4",
+    title: "Approval Request: Chapter 5 Artwork",
+    summary: "Aravinda submitted Chapter 5 illustrations for your review.",
+    type: "Approval",
+    category: "Approval Request",
+    timeAgo: "2d ago",
+    read: true,
+    statusDot: "warning",
+  },
+  {
+    id: "notif-5",
+    title: "AI Notice: Character Detail Conflict",
+    summary: "Kael's eye color in Chapter 7 differs from the character sheet.",
+    type: "AI Notice",
+    category: "New World Detail",
+    timeAgo: "3d ago",
+    read: true,
+    statusDot: "warning",
+  },
+  {
+    id: "notif-6",
+    title: "AI Update: Story Health Report Ready",
+    summary: "Your weekly story health report has been generated.",
+    type: "AI Update",
+    category: "World Bible Synced",
+    timeAgo: "4d ago",
+    read: true,
+    statusDot: "success",
+  },
+];

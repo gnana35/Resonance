@@ -11,6 +11,7 @@ const PERSONAS = [
     title: "Writer",
     description: "Craft stories, build worlds, and bring characters to life.",
     icon: PenTool,
+    image: "/assets/shared/persona-writer.png",
     accent: "gold" as const,
   },
   {
@@ -20,6 +21,7 @@ const PERSONAS = [
     description:
       "Design gameplay, shape systems, and build immersive experiences.",
     icon: Gamepad2,
+    image: "/assets/shared/persona-designer.png",
     accent: "violet" as const,
   },
 ];
@@ -54,38 +56,37 @@ export default function Onboarding() {
               <button
                 key={persona.key}
                 onClick={() => router.push(persona.href)}
-                className={`group relative flex flex-col items-center overflow-hidden rounded-2xl border bg-bg-1 px-8 py-14 text-center transition-colors ${
+                className={`group relative flex flex-col items-center overflow-hidden rounded-2xl border bg-bg-1 pb-10 pt-0 text-center transition-colors ${
                   isGold
                     ? "border-gold-3/40 hover:border-gold-2/70"
                     : "border-violet-400/25 hover:border-violet-400/60"
                 }`}
               >
+                {/* background glow */}
                 <div
                   className={`pointer-events-none absolute inset-0 opacity-60 ${
                     isGold
-                      ? "bg-[radial-gradient(circle_at_50%_35%,rgba(217,168,78,0.16),transparent_60%)]"
-                      : "bg-[radial-gradient(circle_at_50%_35%,rgba(139,127,240,0.18),transparent_60%)]"
+                      ? "bg-[radial-gradient(circle_at_50%_40%,rgba(217,168,78,0.18),transparent_65%)]"
+                      : "bg-[radial-gradient(circle_at_50%_40%,rgba(139,127,240,0.22),transparent_65%)]"
                   }`}
                 />
 
-                <div
-                  className={`relative mb-8 flex h-32 w-32 items-center justify-center rounded-full border ${
-                    isGold
-                      ? "border-gold-3/40 text-gold-2"
-                      : "border-violet-400/30 text-violet-300"
-                  }`}
-                >
-                  <Icon className="h-12 w-12 opacity-70" />
-                </div>
+                {/* full-card image */}
+                <img
+                  src={persona.image}
+                  alt={persona.title}
+                  className="relative h-72 w-full object-contain object-bottom"
+                />
 
+                {/* small icon badge */}
                 <div
-                  className={`relative mb-5 flex h-12 w-12 items-center justify-center rounded-full border ${
+                  className={`relative mb-4 flex h-10 w-10 items-center justify-center rounded-full border ${
                     isGold
-                      ? "border-gold-2/60 text-gold-2"
-                      : "border-violet-400/50 text-violet-300"
+                      ? "border-gold-2/60 bg-bg-1 text-gold-2"
+                      : "border-violet-400/50 bg-bg-1 text-violet-300"
                   }`}
                 >
-                  <Icon className="h-5 w-5" />
+                  <Icon className="h-4 w-4" />
                 </div>
 
                 <h2
