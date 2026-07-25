@@ -44,11 +44,7 @@ export default function Onboarding() {
           What brings you here today?
         </h1>
 
-        <p className="mt-4 text-lg text-ink/80">
-          Select your creative path. You can always explore both later.
-        </p>
-
-        <div className="mt-14 grid w-full grid-cols-1 gap-6 md:grid-cols-2">
+        <div className="mt-8 grid w-full grid-cols-1 gap-6 md:grid-cols-2">
           {PERSONAS.map((persona) => {
             const Icon = persona.icon;
             const isGold = persona.accent === "gold";
@@ -56,34 +52,21 @@ export default function Onboarding() {
               <button
                 key={persona.key}
                 onClick={() => router.push(persona.href)}
-                className={`group relative flex flex-col items-center overflow-hidden rounded-2xl border bg-bg-1 pb-10 pt-0 text-center transition-colors ${
-                  isGold
-                    ? "border-gold-3/40 hover:border-gold-2/70"
-                    : "border-violet-400/25 hover:border-violet-400/60"
-                }`}
+                className="group relative flex flex-col items-center pb-10 pt-0 text-center transition-opacity hover:opacity-90"
               >
-                {/* background glow */}
-                <div
-                  className={`pointer-events-none absolute inset-0 opacity-60 ${
-                    isGold
-                      ? "bg-[radial-gradient(circle_at_50%_40%,rgba(217,168,78,0.18),transparent_65%)]"
-                      : "bg-[radial-gradient(circle_at_50%_40%,rgba(139,127,240,0.22),transparent_65%)]"
-                  }`}
-                />
-
                 {/* full-card image */}
                 <img
                   src={persona.image}
                   alt={persona.title}
-                  className="relative h-72 w-full object-contain object-bottom"
+                  className="relative h-88 w-full object-contain object-center drop-shadow-[0_0_40px_rgba(217,168,78,0.15)]"
                 />
 
                 {/* small icon badge */}
                 <div
                   className={`relative mb-4 flex h-10 w-10 items-center justify-center rounded-full border ${
                     isGold
-                      ? "border-gold-2/60 bg-bg-1 text-gold-2"
-                      : "border-violet-400/50 bg-bg-1 text-violet-300"
+                      ? "border-gold-2/60 bg-bg-0/60 text-gold-2"
+                      : "border-violet-400/50 bg-bg-0/60 text-violet-300"
                   }`}
                 >
                   <Icon className="h-4 w-4" />

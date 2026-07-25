@@ -49,19 +49,6 @@ export function TopNav() {
       </Link>
 
       <div className="flex items-center gap-10">
-        <a
-          href="#"
-          className="hidden text-ink transition-colors hover:text-gold-1 md:inline"
-        >
-          The studio
-        </a>
-        <a
-          href="#"
-          className="hidden text-ink transition-colors hover:text-gold-1 md:inline"
-        >
-          Creative lenses
-        </a>
-
         {/* Avatar / account button */}
         <div className="relative" ref={menuRef}>
           <button

@@ -3,12 +3,22 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { ArrowRight, Play, Sparkle } from "lucide-react";
+import { ArrowRight, Sparkle } from "lucide-react";
+import { auth } from "@/lib/firebase";
 import { LoginModal } from "@/components/LoginModal";
 
 export default function Home() {
   const [loginOpen, setLoginOpen] = useState(false);
   const router = useRouter();
+
+  function handleBeginResonance() {
+    const user = auth.currentUser;
+    if (user) {
+      router.push("/onboarding");
+    } else {
+      setLoginOpen(true);
+    }
+  }
 
   return (
     <div className="relative min-h-screen w-full overflow-hidden">
@@ -32,12 +42,6 @@ export default function Home() {
           </div>
 
           <div className="hidden items-center gap-10 md:flex">
-            <a href="#" className="text-ink transition-colors hover:text-gold-1">
-              The studio
-            </a>
-            <a href="#" className="text-ink transition-colors hover:text-gold-1">
-              Creative lenses
-            </a>
             <button
               onClick={() => setLoginOpen(true)}
               className="rounded-full border border-gold-2/60 px-6 py-2 text-gold-2 transition-colors hover:border-gold-1 hover:text-gold-1"
@@ -55,14 +59,14 @@ export default function Home() {
         </nav>
 
         <div className="flex flex-1 flex-col items-center justify-center px-4 text-center">
-          <div className="mb-6 flex items-center gap-2 text-sm tracking-[0.2em] text-gold-2">
+          <div className="mb-6 flex items-center gap-2 text-sm font-bold tracking-[0.2em] text-white">
             <Sparkle className="h-4 w-4" />
             THE VIRTUAL CREATIVE STUDIO
           </div>
 
           <h1 className="max-w-4xl font-display text-5xl leading-[1.1] text-gold-1 sm:text-6xl md:text-7xl">
             Where stories and{" "}
-            <span className="font-body italic text-gold-2">worlds</span> align.
+            <span className="italic text-gold-2">worlds</span> align.
           </h1>
 
           <p className="mt-8 max-w-2xl text-lg text-ink/85 md:text-xl">
@@ -71,19 +75,13 @@ export default function Home() {
             life.
           </p>
 
-          <div className="mt-10 flex flex-col items-center gap-6 sm:flex-row">
+          <div className="mt-10 flex justify-center">
             <button
-              onClick={() => router.push("/onboarding")}
+              onClick={handleBeginResonance}
               className="flex items-center gap-2 rounded-full bg-gold-2 px-8 py-4 font-medium text-bg-0 transition-colors hover:bg-gold-1"
             >
               Begin your resonance
               <ArrowRight className="h-4 w-4" />
-            </button>
-            <button className="flex items-center gap-3 text-ink transition-colors hover:text-gold-1">
-              <span className="flex h-8 w-8 items-center justify-center rounded-full border border-ink/50">
-                <Play className="h-3.5 w-3.5" />
-              </span>
-              See how it works
             </button>
           </div>
         </div>
