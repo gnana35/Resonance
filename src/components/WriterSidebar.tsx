@@ -8,7 +8,6 @@ import {
   FlaskConical,
   Globe,
   PenLine,
-  Plus,
   Settings,
   User,
 } from "lucide-react";
@@ -55,16 +54,6 @@ export function WriterSidebar() {
           );
         })}
       </nav>
-
-      <div className="mt-8 flex flex-col gap-4">
-        <button
-          onClick={() => console.log("new project")}
-          className="flex items-center justify-center gap-2 rounded-full border border-gold-2/50 py-2.5 text-sm text-gold-2 transition-colors hover:border-gold-1 hover:text-gold-1"
-        >
-          <Plus className="h-4 w-4" />
-          New Project
-        </button>
-      </div>
     </aside>
   );
 }

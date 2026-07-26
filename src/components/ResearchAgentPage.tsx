@@ -6,25 +6,25 @@ import {
   ArrowRight,
   BookOpen,
   Bot,
-  ChevronDown,
   Clock,
   FlaskConical,
   Globe,
   Heart,
+  History,
   Loader2,
-  RotateCcw,
-  Search,
+  MessageSquarePlus,
+  PanelLeftClose,
+  PanelLeftOpen,
   Send,
   Sparkles,
   TrendingDown,
   TrendingUp,
 } from "lucide-react";
-import { motion, type Variants, type Transition } from "framer-motion";
+import { motion, AnimatePresence, type Variants, type Transition } from "framer-motion";
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
 type Role = "user" | "agent";
-
 type MessageStatus = "typing" | "done";
 
 type InconsistencyFlag = {
@@ -66,6 +66,14 @@ type Message = {
 };
 
 type ScanMode = "full" | "inconsistencies" | "theme" | "evolution";
+
+type ChatSession = {
+  id: string;
+  title: string;
+  timeLabel: string;
+  group: "Today" | "Yesterday" | "Earlier";
+  messages: Message[];
+};
 
 // ─── mock agent responses ─────────────────────────────────────────────────────
 
@@ -114,20 +122,46 @@ function nextMessageId() {
   return `msg-${messageIdCounter}`;
 }
 
+let chatIdCounter = 0;
+function nextChatId() {
+  chatIdCounter += 1;
+  return `chat-${chatIdCounter}`;
+}
+
+const SEED_HISTORY: ChatSession[] = [
+  {
+    id: "hist-1",
+    title: "Historical Accuracy Scan",
+    timeLabel: "10:32 AM",
+    group: "Today",
+    messages: [],
+  },
+  {
+    id: "hist-2",
+    title: "Theme Analysis",
+    timeLabel: "9:15 AM",
+    group: "Today",
+    messages: [],
+  },
+  {
+    id: "hist-3",
+    title: "Full Research Scan",
+    timeLabel: "July 24",
+    group: "Yesterday",
+    messages: [],
+  },
+];
+
 async function runAgentStream(
   query: string,
   mode: ScanMode,
   onChunk: (chunk: string) => void,
   onResult: (result: AgentResult) => void,
 ): Promise<void> {
-  // Simulate streaming text then structured result
   const responses: Record<ScanMode, { text: string; result: AgentResult }> = {
     inconsistencies: {
       text: "Scanning your manuscript for historical inconsistencies against the selected time period: England, 1290 AD…\n\nAnalysing 3 chapters. Cross-referencing against verified historical database…",
-      result: {
-        type: "inconsistencies",
-        flags: HISTORICAL_FLAGS,
-      },
+      result: { type: "inconsistencies", flags: HISTORICAL_FLAGS },
     },
     theme: {
       text: "Analysing theme alignment against your original brief (Romance/Comedy)…\n\nComparing narrative tone across v1.0 → v3.2. Calculating deviation score…",
@@ -141,35 +175,28 @@ async function runAgentStream(
     },
     evolution: {
       text: "Comparing project versions: v1.0 (Original Brief) → v2.0 (May 2) → v3.2 (Current, May 20)…\n\nMapping key changes across plot, character, emotional pacing, and visual direction…",
-      result: {
-        type: "evolution",
-        overallAlignment: 76,
-        rows: EVOLUTION_ROWS,
-      },
+      result: { type: "evolution", overallAlignment: 76, rows: EVOLUTION_ROWS },
     },
     full: {
       text: "Running full research scan…\n\nStep 1: Historical accuracy check\nStep 2: Theme drift analysis\nStep 3: Project evolution overview\nStep 4: Generating summary report…",
       result: {
         type: "text",
-        text: "Full scan complete. Found 3 historical inconsistencies, 41% theme deviation from original brief, and significant story drift across 3 major aspects. See detailed panels below.",
+        text: "Full scan complete. Found 3 historical inconsistencies, 41% theme deviation from original brief, and significant story drift across 3 major aspects.",
       },
     },
   };
 
   const { text, result } = responses[mode] || responses.inconsistencies;
-
-  // stream text character by character (batched)
   const words = text.split(" ");
   for (let i = 0; i < words.length; i++) {
     await new Promise((r) => setTimeout(r, 28 + Math.random() * 22));
     onChunk((i === 0 ? "" : " ") + words[i]);
   }
-
   await new Promise((r) => setTimeout(r, 400));
   onResult(result);
 }
 
-// ─── helper renderers ─────────────────────────────────────────────────────────
+// ─── result renderers (unchanged) ────────────────────────────────────────────
 
 function SeverityBadge({ s }: { s: InconsistencyFlag["severity"] }) {
   if (s === "Critical")
@@ -184,10 +211,9 @@ function ImpactBadge({ impact }: { impact: EvolutionRow["impact"] }) {
     impact === "Major Drift" ? "text-red-400" :
     impact === "Major Shift" ? "text-amber-400" :
     impact === "Moderate Shift" ? "text-yellow-400" : "text-emerald-400";
-  const arrow = impact === "Stable" ? null : <TrendingDown className="h-3 w-3" />;
   return (
     <span className={`flex items-center gap-1 text-xs font-medium ${color}`}>
-      {arrow}
+      {impact !== "Stable" && <TrendingDown className="h-3 w-3" />}
       {impact}
     </span>
   );
@@ -200,8 +226,6 @@ function TagPill({ label, variant }: { label: string; variant: "original" | "cur
     </span>
   );
 }
-
-// ─── result renderers ─────────────────────────────────────────────────────────
 
 function InconsistenciesPanel({ flags }: { flags: InconsistencyFlag[] }) {
   return (
@@ -219,7 +243,6 @@ function InconsistenciesPanel({ flags }: { flags: InconsistencyFlag[] }) {
         </div>
         <span className="rounded-sm bg-red-500/20 px-2 py-0.5 text-xs font-medium text-red-400">Critical</span>
       </div>
-
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -247,7 +270,6 @@ function InconsistenciesPanel({ flags }: { flags: InconsistencyFlag[] }) {
           </tbody>
         </table>
       </div>
-
       <div className="border-t border-amber-500/20 px-4 py-2.5">
         <button className="flex items-center gap-1.5 text-xs text-amber-400 hover:text-amber-300">
           View all historical flags (7) <ArrowRight className="h-3 w-3" />
@@ -278,7 +300,6 @@ function ThemeDriftPanel({ originalBrief, currentAnalysis, deviationScore, contr
         <span className="rounded-sm bg-yellow-500/15 px-2 py-0.5 text-xs text-yellow-400">Warning</span>
       </div>
       <p className="mt-1 text-xs text-ink/50">The story is drifting from the original tone and theme.</p>
-
       <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
           <p className="mb-2 text-xs text-ink/40">Original Brief</p>
@@ -293,7 +314,6 @@ function ThemeDriftPanel({ originalBrief, currentAnalysis, deviationScore, contr
           </div>
         </div>
       </div>
-
       <div className="mt-4">
         <p className="text-xs text-ink/40">Deviation Score</p>
         <p className="mt-1 text-sm font-medium text-ink">{deviationScore}% away from original theme</p>
@@ -306,19 +326,15 @@ function ThemeDriftPanel({ originalBrief, currentAnalysis, deviationScore, contr
           />
         </div>
       </div>
-
       <div className="mt-4">
         <p className="mb-2 text-xs text-ink/40">Top Contributors to Drift</p>
         {contributors.map((c, i) => (
           <div key={i} className="flex items-center justify-between py-1 text-xs">
             <span className="text-ink/70">• {c.label}</span>
-            <span className={c.direction === "up" ? "text-red-400" : "text-emerald-400"}>
-              {c.delta}
-            </span>
+            <span className={c.direction === "up" ? "text-red-400" : "text-emerald-400"}>{c.delta}</span>
           </div>
         ))}
       </div>
-
       <button className="mt-3 flex items-center gap-1.5 text-xs text-violet-2 hover:text-violet-1">
         View full theme analysis <ArrowRight className="h-3 w-3" />
       </button>
@@ -327,9 +343,7 @@ function ThemeDriftPanel({ originalBrief, currentAnalysis, deviationScore, contr
 }
 
 function EvolutionPanel({ rows, overallAlignment }: { rows: EvolutionRow[]; overallAlignment: number }) {
-  // Simple gauge
   const gaugeColor = overallAlignment >= 80 ? "#34d399" : overallAlignment >= 60 ? "#d9a84e" : "#f87171";
-
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -342,8 +356,7 @@ function EvolutionPanel({ rows, overallAlignment }: { rows: EvolutionRow[]; over
           <TrendingUp className="h-4 w-4 text-violet-2" />
           <span className="text-sm font-medium text-ink">Project Evolution Overview</span>
         </div>
-        <span className="text-xs text-ink/40">Key changes across versions</span>
-        <div className="mt-1 flex items-center gap-2">
+        <div className="flex items-center gap-2">
           <div
             className="flex h-8 w-8 items-center justify-center rounded-full border-2"
             style={{ borderColor: gaugeColor, color: gaugeColor }}
@@ -356,7 +369,6 @@ function EvolutionPanel({ rows, overallAlignment }: { rows: EvolutionRow[]; over
           </div>
         </div>
       </div>
-
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
@@ -375,19 +387,15 @@ function EvolutionPanel({ rows, overallAlignment }: { rows: EvolutionRow[]; over
                 <td className="px-4 py-3 text-ink/60">{row.v1}</td>
                 <td className="px-4 py-3 text-ink/60">
                   <span className="flex items-center gap-1">
-                    <ArrowRight className="h-3 w-3 text-ink/30" />
-                    {row.v2}
+                    <ArrowRight className="h-3 w-3 text-ink/30" />{row.v2}
                   </span>
                 </td>
                 <td className="px-4 py-3 text-ink/60">
                   <span className="flex items-center gap-1">
-                    <ArrowRight className="h-3 w-3 text-ink/30" />
-                    {row.v3}
+                    <ArrowRight className="h-3 w-3 text-ink/30" />{row.v3}
                   </span>
                 </td>
-                <td className="px-4 py-3">
-                  <ImpactBadge impact={row.impact} />
-                </td>
+                <td className="px-4 py-3"><ImpactBadge impact={row.impact} /></td>
               </tr>
             ))}
           </tbody>
@@ -413,21 +421,19 @@ function ResultRenderer({ result }: { result: AgentResult }) {
     case "evolution":
       return <EvolutionPanel rows={result.rows!} overallAlignment={result.overallAlignment!} />;
     case "text":
-      return (
-        <div className="mt-2 text-sm text-ink/70">{result.text}</div>
-      );
+      return <div className="mt-2 text-sm text-ink/70">{result.text}</div>;
     default:
       return null;
   }
 }
 
-// ─── quick prompts ─────────────────────────────────────────────────────────────
+// ─── research tools config ────────────────────────────────────────────────────
 
-const QUICK_PROMPTS: { label: string; prompt: string; mode: ScanMode }[] = [
-  { label: "Check historical accuracy", prompt: "Check my story for historical inconsistencies against the selected time period.", mode: "inconsistencies" },
-  { label: "Analyse theme drift", prompt: "Analyse how much my story has drifted from its original theme and tone.", mode: "theme" },
-  { label: "Project evolution overview", prompt: "Show me how my project has evolved across versions.", mode: "evolution" },
-  { label: "Full research scan", prompt: "Run a full research scan covering accuracy, theme drift, and evolution.", mode: "full" },
+const RESEARCH_TOOLS: { icon: typeof Clock; label: string; prompt: string; mode: ScanMode }[] = [
+  { icon: Clock,       label: "Check historical accuracy",    prompt: "Check my story for historical inconsistencies against the selected time period.", mode: "inconsistencies" },
+  { icon: Heart,       label: "Analyze theme drift",          prompt: "Analyse how much my story has drifted from its original theme and tone.", mode: "theme" },
+  { icon: TrendingUp,  label: "Project evolution overview",   prompt: "Show me how my project has evolved across versions.", mode: "evolution" },
+  { icon: Globe,       label: "Full research scan",           prompt: "Run a full research scan covering accuracy, theme drift, and evolution.", mode: "full" },
 ];
 
 // ─── animation variants ───────────────────────────────────────────────────────
@@ -437,41 +443,149 @@ const msgVariant: Variants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.3, ease: "easeOut" } as Transition },
 };
 
-// ─── main component ───────────────────────────────────────────────────────────
+const sidebarVariant: Variants = {
+  open:   { width: 260, opacity: 1, transition: { duration: 0.3, ease: "easeOut" } as Transition },
+  closed: { width: 0,   opacity: 0, transition: { duration: 0.25, ease: "easeIn" } as Transition },
+};
+
+// ─── intro message component ──────────────────────────────────────────────────
+
+function IntroMessage({ accentColor }: { accentColor: string }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.45, ease: "easeOut" }}
+      className="flex flex-col items-center px-4 py-16 text-center"
+    >
+      {/* Avatar */}
+      <div className={`flex h-16 w-16 items-center justify-center rounded-full ${accentColor === "gold" ? "bg-gold-2/20" : "bg-violet-2/20"} mb-5`}>
+        <FlaskConical className={`h-7 w-7 ${accentColor === "gold" ? "text-gold-2" : "text-violet-2"}`} />
+      </div>
+
+      <h2 className={`font-display text-2xl tracking-wide ${accentColor === "gold" ? "text-gold-1" : "text-violet-1"}`}>
+        Research Agent
+      </h2>
+
+      <p className="mt-3 max-w-sm text-sm leading-relaxed text-ink/65">
+        Hello! I&apos;m your Research Agent.
+      </p>
+      <p className="mt-1 max-w-sm text-sm leading-relaxed text-ink/65">
+        I help analyze your story for:
+      </p>
+
+      {/* Capabilities list */}
+      <div className="mt-5 flex flex-col items-start gap-2.5 text-left">
+        {[
+          { icon: Clock,      label: "Historical accuracy",         sub: "Cross-references time periods & real-world events" },
+          { icon: Heart,      label: "Theme consistency",           sub: "Tracks drift from your original creative brief" },
+          { icon: TrendingUp, label: "Story evolution",             sub: "Maps how your narrative has changed across versions" },
+          { icon: Globe,      label: "World-building conflicts",    sub: "Flags lore contradictions and setting inconsistencies" },
+        ].map(({ icon: Icon, label, sub }) => (
+          <div key={label} className="flex items-start gap-3">
+            <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${accentColor === "gold" ? "bg-gold-2/15" : "bg-violet-2/15"}`}>
+              <Icon className={`h-3.5 w-3.5 ${accentColor === "gold" ? "text-gold-2" : "text-violet-2"}`} />
+            </span>
+            <div>
+              <p className="text-sm font-medium text-ink">{label}</p>
+              <p className="text-xs text-ink/45">{sub}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <p className={`mt-8 text-sm font-medium ${accentColor === "gold" ? "text-gold-2" : "text-violet-2"}`}>
+        What would you like me to research?
+      </p>
+    </motion.div>
+  );
+}
+
+// ─── main export ──────────────────────────────────────────────────────────────
 
 export function ResearchAgentPage({ accentClass = "violet" }: { accentClass?: "violet" | "gold" }) {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "welcome",
-      role: "agent",
-      status: "done",
-      text: "Hello! I'm your Research Agent. I check for historical accuracy, track theme alignment, and monitor how your project evolves across versions.\n\nWhat would you like me to analyse?",
-    },
-  ]);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sessions, setSessions] = useState<ChatSession[]>(SEED_HISTORY);
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isRunning, setIsRunning] = useState(false);
-  const [scanMode, setScanMode] = useState<ScanMode>("inconsistencies");
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const titleColor = accentClass === "gold" ? "text-gold-1" : "text-violet-1";
-  const accentBtn = accentClass === "gold"
+  const isGold = accentClass === "gold";
+  const accentText = isGold ? "text-gold-1" : "text-violet-1";
+  const accentBtn = isGold
     ? "bg-gold-2 hover:bg-gold-1 text-bg-0"
     : "bg-violet-2 hover:opacity-90 text-bg-0";
+  const accentBorder = isGold ? "border-gold-3/25" : "border-violet-3/25";
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // ── chat actions ──────────────────────────────────────────────────────────
+
+  function startNewChat() {
+    const newId = nextChatId();
+    const newSession: ChatSession = {
+      id: newId,
+      title: "New Chat",
+      timeLabel: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      group: "Today",
+      messages: [],
+    };
+    setSessions((prev) => [newSession, ...prev]);
+    setActiveChatId(newId);
+    setMessages([]);
+    setInput("");
+    setIsRunning(false);
+  }
+
+  function openSession(id: string) {
+    const session = sessions.find((s) => s.id === id);
+    if (!session) return;
+    setActiveChatId(id);
+    setMessages(session.messages);
+    setInput("");
+    setIsRunning(false);
+  }
+
   async function sendMessage(text: string, mode: ScanMode) {
     if (!text.trim() || isRunning) return;
+
+    // If no active chat, create one first
+    let chatId = activeChatId;
+    if (!chatId) {
+      const newId = nextChatId();
+      const newSession: ChatSession = {
+        id: newId,
+        title: text.slice(0, 32) + (text.length > 32 ? "…" : ""),
+        timeLabel: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        group: "Today",
+        messages: [],
+      };
+      setSessions((prev) => [newSession, ...prev]);
+      chatId = newId;
+      setActiveChatId(newId);
+    }
 
     const userMsg: Message = { id: nextMessageId(), role: "user", text, status: "done" };
     const agentMsgId = nextMessageId();
     const agentMsg: Message = { id: agentMsgId, role: "agent", text: "", status: "typing" };
 
-    setMessages((m) => [...m, userMsg, agentMsg]);
+    const nextMessages = [...messages, userMsg, agentMsg];
+    setMessages(nextMessages);
     setInput("");
     setIsRunning(true);
+
+    // Update session title from first user message
+    setSessions((prev) =>
+      prev.map((s) =>
+        s.id === chatId && s.title === "New Chat"
+          ? { ...s, title: text.slice(0, 32) + (text.length > 32 ? "…" : "") }
+          : s,
+      ),
+    );
 
     await runAgentStream(
       text,
@@ -494,236 +608,309 @@ export function ResearchAgentPage({ accentClass = "violet" }: { accentClass?: "v
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    sendMessage(input, scanMode);
+    sendMessage(input, "inconsistencies");
   }
 
-  function handleQuickPrompt(qp: typeof QUICK_PROMPTS[number]) {
-    sendMessage(qp.prompt, qp.mode);
+  function handleTool(tool: (typeof RESEARCH_TOOLS)[number]) {
+    if (!activeChatId) startNewChat();
+    sendMessage(tool.prompt, tool.mode);
   }
 
-  function handleNewScan() {
-    setMessages([
-      {
-        id: "welcome-reset",
-        role: "agent",
-        status: "done",
-        text: "Session reset. What would you like me to research next?",
-      },
-    ]);
-    setInput("");
-    setIsRunning(false);
-  }
+  // ── group sessions for sidebar ────────────────────────────────────────────
+
+  const todaySessions    = sessions.filter((s) => s.group === "Today");
+  const yesterdaySessions = sessions.filter((s) => s.group === "Yesterday");
+  const earlierSessions  = sessions.filter((s) => s.group === "Earlier");
+
+  // ── render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex h-[calc(100vh-73px)] flex-col px-6 py-6 md:px-10">
-      {/* ── header ── */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.38 }}
-        className="mb-4 flex flex-wrap items-start justify-between gap-4"
-      >
-        <div className="flex items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-2/15">
-            <FlaskConical className="h-5 w-5 text-violet-2" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className={`font-display text-2xl tracking-wide ${titleColor}`}>
-                Research Agent
-              </h1>
-              <Sparkles className="h-4 w-4 text-violet-2" />
-            </div>
-            <p className="mt-0.5 text-sm text-ink/55">
-              AI research agent that checks for historical accuracy and theme alignment.
-            </p>
-          </div>
-        </div>
+    <div className="flex h-[calc(100vh-73px)] overflow-hidden">
 
-        <div className="flex items-center gap-2">
-          {/* mode selector */}
-          <div className="relative flex items-center gap-2 rounded-lg border border-violet-3/30 bg-bg-1 px-3 py-2 text-sm text-ink/70">
-            <Search className="h-3.5 w-3.5 text-ink/40" />
-            <select
-              value={scanMode}
-              onChange={(e) => setScanMode(e.target.value as ScanMode)}
-              className="appearance-none bg-transparent text-sm text-ink focus:outline-none"
-            >
-              <option value="inconsistencies">View: Historical Accuracy</option>
-              <option value="theme">View: Theme Alignment</option>
-              <option value="evolution">View: Evolution</option>
-              <option value="full">View: All Flags</option>
-            </select>
-            <ChevronDown className="h-3.5 w-3.5 text-ink/40" />
-          </div>
-
-          <button
-            onClick={handleNewScan}
-            className={`flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-all ${accentBtn}`}
+      {/* ── Collapsible Sidebar ── */}
+      <AnimatePresence initial={false}>
+        {sidebarOpen && (
+          <motion.aside
+            key="sidebar"
+            initial="closed"
+            animate="open"
+            exit="closed"
+            variants={sidebarVariant}
+            className={`flex shrink-0 flex-col overflow-hidden border-r ${accentBorder} bg-bg-1`}
+            style={{ minWidth: 0 }}
           >
-            <RotateCcw className="h-3.5 w-3.5" />
-            Run New Scan
-          </button>
-        </div>
-      </motion.div>
-
-      {/* ── main two-col layout ── */}
-      <div className="flex min-h-0 flex-1 gap-5">
-        {/* LEFT — chat + results */}
-        <div className="flex min-w-0 flex-1 flex-col gap-3">
-
-          {/* quick prompts */}
-          <motion.div
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.35, delay: 0.1 }}
-            className="flex flex-wrap gap-2"
-          >
-            {QUICK_PROMPTS.map((qp) => (
-              <button
-                key={qp.mode}
-                onClick={() => handleQuickPrompt(qp)}
-                disabled={isRunning}
-                className="flex items-center gap-1.5 rounded-full border border-violet-3/30 bg-bg-1 px-3 py-1.5 text-xs text-ink/70 transition-colors hover:border-violet-2/50 hover:text-ink disabled:opacity-40"
-              >
-                <Sparkles className="h-3 w-3 text-violet-2" />
-                {qp.label}
-              </button>
-            ))}
-          </motion.div>
-
-          {/* message list */}
-          <div className="flex-1 overflow-y-auto rounded-xl border border-violet-3/20 bg-bg-1 p-4">
-            <div className="flex flex-col gap-4">
-              {messages.map((msg) => (
-                <motion.div
-                  key={msg.id}
-                  variants={msgVariant}
-                  initial="hidden"
-                  animate="visible"
-                  className={`flex gap-3 ${msg.role === "user" ? "flex-row-reverse" : ""}`}
+            <div className="flex w-[260px] flex-col gap-0 overflow-y-auto pb-6">
+              {/* Sidebar header */}
+              <div className={`flex items-center justify-between border-b ${accentBorder} px-4 py-4`}>
+                <div className="flex items-center gap-2">
+                  <FlaskConical className={`h-4 w-4 ${isGold ? "text-gold-2" : "text-violet-2"}`} />
+                  <span className={`font-display text-sm tracking-wide ${accentText}`}>Research Agent</span>
+                </div>
+                <button
+                  onClick={() => setSidebarOpen(false)}
+                  aria-label="Close sidebar"
+                  className="rounded-md p-1 text-ink/40 transition-colors hover:bg-ink/8 hover:text-ink"
                 >
-                  {/* avatar */}
-                  {msg.role === "agent" ? (
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-violet-2/20">
-                      <Bot className="h-4 w-4 text-violet-2" />
-                    </div>
-                  ) : (
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gold-2/15">
-                      <span className="font-display text-xs text-gold-2">U</span>
-                    </div>
-                  )}
+                  <PanelLeftClose className="h-4 w-4" />
+                </button>
+              </div>
 
-                  <div className={`max-w-[85%] ${msg.role === "user" ? "items-end" : "items-start"} flex flex-col gap-2`}>
-                    {/* bubble */}
-                    <div
-                      className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-line ${
-                        msg.role === "user"
-                          ? "bg-violet-2/15 text-ink"
-                          : "bg-bg-0 text-ink/80"
-                      }`}
-                    >
-                      {msg.text}
-                      {msg.status === "typing" && !msg.text && (
-                        <span className="flex items-center gap-1">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-2" />
-                          <span className="text-ink/40">Thinking…</span>
+              {/* New Chat button */}
+              <div className="px-3 pt-4">
+                <button
+                  onClick={startNewChat}
+                  className={`flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition-all ${accentBtn}`}
+                >
+                  <MessageSquarePlus className="h-4 w-4 shrink-0" />
+                  New Chat
+                </button>
+              </div>
+
+              {/* Research Tools */}
+              <div className="px-3 pt-5">
+                <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-widest text-ink/35">
+                  Research Tools
+                </p>
+                <div className="flex flex-col gap-0.5">
+                  {RESEARCH_TOOLS.map((tool) => {
+                    const Icon = tool.icon;
+                    return (
+                      <button
+                        key={tool.mode}
+                        onClick={() => handleTool(tool)}
+                        disabled={isRunning}
+                        className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-ink/70 transition-colors hover:bg-ink/6 hover:text-ink disabled:opacity-40`}
+                      >
+                        <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${isGold ? "bg-gold-2/12" : "bg-violet-2/12"}`}>
+                          <Icon className={`h-3 w-3 ${isGold ? "text-gold-2" : "text-violet-2"}`} />
                         </span>
-                      )}
-                    </div>
+                        <span className="flex items-center gap-1.5">
+                          <span className={`text-xs ${isGold ? "text-gold-2" : "text-violet-2"}`}>✦</span>
+                          {tool.label}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
 
-                    {/* structured result */}
-                    {msg.result && <ResultRenderer result={msg.result} />}
-                  </div>
-                </motion.div>
-              ))}
+              {/* Recent Chats */}
+              <div className="px-3 pt-5">
+                <p className="mb-2 flex items-center gap-1.5 px-1 text-[10px] font-semibold uppercase tracking-widest text-ink/35">
+                  <History className="h-3 w-3" />
+                  Recent Chats
+                </p>
+
+                {todaySessions.length > 0 && (
+                  <>
+                    <p className="mb-1 mt-2 px-3 text-[10px] text-ink/30">Today</p>
+                    {todaySessions.map((s) => (
+                      <button
+                        key={s.id}
+                        onClick={() => openSession(s.id)}
+                        className={`flex w-full items-start gap-2 rounded-lg px-3 py-2 text-left transition-colors ${
+                          activeChatId === s.id
+                            ? isGold ? "bg-gold-2/10 text-gold-1" : "bg-violet-2/10 text-violet-1"
+                            : "text-ink/65 hover:bg-ink/5 hover:text-ink"
+                        }`}
+                      >
+                        <MessageSquarePlus className="mt-0.5 h-3.5 w-3.5 shrink-0 opacity-50" />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm">{s.title}</p>
+                          <p className="text-[10px] text-ink/35">{s.timeLabel}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </>
+                )}
+
+                {yesterdaySessions.length > 0 && (
+                  <>
+                    <p className="mb-1 mt-3 px-3 text-[10px] text-ink/30">Yesterday</p>
+                    {yesterdaySessions.map((s) => (
+                      <button
+                        key={s.id}
+                        onClick={() => openSession(s.id)}
+                        className={`flex w-full items-start gap-2 rounded-lg px-3 py-2 text-left transition-colors ${
+                          activeChatId === s.id
+                            ? isGold ? "bg-gold-2/10 text-gold-1" : "bg-violet-2/10 text-violet-1"
+                            : "text-ink/65 hover:bg-ink/5 hover:text-ink"
+                        }`}
+                      >
+                        <MessageSquarePlus className="mt-0.5 h-3.5 w-3.5 shrink-0 opacity-50" />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm">{s.title}</p>
+                          <p className="text-[10px] text-ink/35">{s.timeLabel}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </>
+                )}
+
+                {earlierSessions.length > 0 && (
+                  <>
+                    <p className="mb-1 mt-3 px-3 text-[10px] text-ink/30">Earlier</p>
+                    {earlierSessions.map((s) => (
+                      <button
+                        key={s.id}
+                        onClick={() => openSession(s.id)}
+                        className={`flex w-full items-start gap-2 rounded-lg px-3 py-2 text-left transition-colors ${
+                          activeChatId === s.id
+                            ? isGold ? "bg-gold-2/10 text-gold-1" : "bg-violet-2/10 text-violet-1"
+                            : "text-ink/65 hover:bg-ink/5 hover:text-ink"
+                        }`}
+                      >
+                        <MessageSquarePlus className="mt-0.5 h-3.5 w-3.5 shrink-0 opacity-50" />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm">{s.title}</p>
+                          <p className="text-[10px] text-ink/35">{s.timeLabel}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </>
+                )}
+              </div>
+            </div>
+          </motion.aside>
+        )}
+      </AnimatePresence>
+
+      {/* ── Main Chat Area ── */}
+      <div className="flex min-w-0 flex-1 flex-col">
+
+        {/* Chat topbar */}
+        <div className={`flex shrink-0 items-center gap-3 border-b ${accentBorder} px-4 py-3`}>
+          {!sidebarOpen && (
+            <button
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Open sidebar"
+              className="rounded-md p-1.5 text-ink/40 transition-colors hover:bg-ink/8 hover:text-ink"
+            >
+              <PanelLeftOpen className="h-4 w-4" />
+            </button>
+          )}
+          <div className="flex items-center gap-2">
+            <FlaskConical className={`h-4 w-4 ${isGold ? "text-gold-2" : "text-violet-2"}`} />
+            <span className={`font-display text-base tracking-wide ${accentText}`}>
+              {activeChatId
+                ? (sessions.find((s) => s.id === activeChatId)?.title ?? "Research Agent")
+                : "Research Agent"}
+            </span>
+          </div>
+        </div>
+
+        {/* Messages or empty state */}
+        <div className="flex-1 overflow-y-auto">
+          {activeChatId === null ? (
+            /* Empty state — no session selected */
+            <div className="flex h-full flex-col items-center justify-center px-6 py-12 text-center">
+              <div className={`flex h-14 w-14 items-center justify-center rounded-full ${isGold ? "bg-gold-2/15" : "bg-violet-2/15"} mb-4`}>
+                <FlaskConical className={`h-6 w-6 ${isGold ? "text-gold-2" : "text-violet-2"}`} />
+              </div>
+              <h2 className={`font-display text-xl ${accentText}`}>Research Agent</h2>
+              <p className="mt-2 max-w-xs text-sm text-ink/50">
+                Start a new conversation or select a previous research chat from the sidebar.
+              </p>
+              <button
+                onClick={startNewChat}
+                className={`mt-6 flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-medium transition-all ${accentBtn}`}
+              >
+                <MessageSquarePlus className="h-4 w-4" />
+                New Chat
+              </button>
+            </div>
+          ) : messages.length === 0 ? (
+            /* New chat — show intro */
+            <IntroMessage accentColor={accentClass} />
+          ) : (
+            /* Active conversation */
+            <div className="mx-auto flex max-w-3xl flex-col gap-5 px-4 py-6">
+              <AnimatePresence initial={false}>
+                {messages.map((msg) => (
+                  <motion.div
+                    key={msg.id}
+                    variants={msgVariant}
+                    initial="hidden"
+                    animate="visible"
+                    className={`flex gap-3 ${msg.role === "user" ? "flex-row-reverse" : ""}`}
+                  >
+                    {/* Avatar */}
+                    {msg.role === "agent" ? (
+                      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${isGold ? "bg-gold-2/20" : "bg-violet-2/20"}`}>
+                        <Bot className={`h-4 w-4 ${isGold ? "text-gold-2" : "text-violet-2"}`} />
+                      </div>
+                    ) : (
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gold-2/15">
+                        <span className="font-display text-xs text-gold-2">U</span>
+                      </div>
+                    )}
+
+                    {/* Bubble */}
+                    <div className={`max-w-[80%] flex flex-col gap-2 ${msg.role === "user" ? "items-end" : "items-start"}`}>
+                      <div
+                        className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-line ${
+                          msg.role === "user"
+                            ? isGold ? "bg-gold-2/15 text-ink" : "bg-violet-2/15 text-ink"
+                            : "bg-bg-1 text-ink/80"
+                        }`}
+                      >
+                        {msg.text}
+                        {msg.status === "typing" && !msg.text && (
+                          <span className="flex items-center gap-1.5">
+                            <Loader2 className={`h-3.5 w-3.5 animate-spin ${isGold ? "text-gold-2" : "text-violet-2"}`} />
+                            <span className="text-ink/40">Thinking…</span>
+                          </span>
+                        )}
+                      </div>
+                      {msg.result && <ResultRenderer result={msg.result} />}
+                    </div>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
               <div ref={bottomRef} />
             </div>
-          </div>
-
-          {/* input */}
-          <form onSubmit={handleSubmit} className="flex items-center gap-2">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink/35" />
-              <input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Ask the research agent anything about your story…"
-                disabled={isRunning}
-                className="w-full rounded-xl border border-violet-3/30 bg-bg-1 py-3 pl-10 pr-4 text-sm text-ink placeholder:text-ink/35 focus:border-violet-2/60 focus:outline-none disabled:opacity-50"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={!input.trim() || isRunning}
-              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition-all disabled:opacity-40 ${accentBtn}`}
-            >
-              {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            </button>
-          </form>
+          )}
         </div>
 
-        {/* RIGHT — agent info panel */}
-        <motion.div
-          initial={{ opacity: 0, x: 16 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.45, delay: 0.15 }}
-          className="hidden w-64 shrink-0 flex-col gap-4 xl:flex"
-        >
-          {/* Agent card */}
-          <div className="rounded-2xl border border-violet-3/25 bg-bg-1 p-5">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-violet-2/20">
-                <Bot className="h-5 w-5 text-violet-2" />
-              </div>
-              <div>
-                <p className="font-medium text-ink">Research Agent</p>
-                <p className="text-xs text-violet-2">Active</p>
-              </div>
-            </div>
-            <p className="mt-3 text-xs leading-relaxed text-ink/60">
-              Monitors your project for historical accuracy, tracks theme alignment, and maps how your story evolves across versions.
+        {/* Input bar — only shown when a chat is active */}
+        {activeChatId !== null && (
+          <div className={`shrink-0 border-t ${accentBorder} px-4 py-3`}>
+            <form
+              onSubmit={handleSubmit}
+              className={`mx-auto flex max-w-3xl items-end gap-2 rounded-xl border ${isGold ? "border-gold-3/30 focus-within:border-gold-2/60" : "border-violet-3/30 focus-within:border-violet-2/60"} bg-bg-1 px-4 py-2.5 transition-colors`}
+            >
+              <textarea
+                rows={1}
+                value={input}
+                onChange={(e) => {
+                  setInput(e.target.value);
+                  e.target.style.height = "auto";
+                  e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage(input, "inconsistencies");
+                  }
+                }}
+                placeholder="Ask the research agent anything about your story…"
+                disabled={isRunning}
+                className="flex-1 resize-none bg-transparent text-sm text-ink placeholder:text-ink/35 focus:outline-none disabled:opacity-50"
+                style={{ minHeight: "24px", maxHeight: "120px" }}
+              />
+              <button
+                type="submit"
+                disabled={!input.trim() || isRunning}
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-all disabled:opacity-35 ${accentBtn}`}
+              >
+                {isRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+              </button>
+            </form>
+            <p className="mx-auto mt-1.5 max-w-3xl text-center text-[10px] text-ink/25">
+              Press Enter to send · Shift+Enter for new line
             </p>
           </div>
-
-          {/* Capabilities */}
-          <div className="rounded-2xl border border-violet-3/25 bg-bg-1 p-5">
-            <p className="mb-3 text-sm text-ink">Capabilities</p>
-            {[
-              { icon: Clock, label: "Historical accuracy", sub: "Cross-references time periods" },
-              { icon: Heart, label: "Theme alignment", sub: "Tracks original brief drift" },
-              { icon: TrendingUp, label: "Version evolution", sub: "Maps story changes over time" },
-              { icon: Globe, label: "World consistency", sub: "Flags lore conflicts" },
-              { icon: BookOpen, label: "Source citations", sub: "Links to reference material" },
-            ].map(({ icon: Icon, label, sub }) => (
-              <div key={label} className="mb-3 flex items-start gap-2.5 last:mb-0">
-                <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-2" />
-                <div>
-                  <p className="text-xs font-medium text-ink">{label}</p>
-                  <p className="text-[10px] text-ink/45">{sub}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Scan history */}
-          <div className="rounded-2xl border border-violet-3/25 bg-bg-1 p-5">
-            <p className="mb-3 text-sm text-ink">Recent Scans</p>
-            {[
-              { label: "Historical flags", count: "3 found", when: "Just now" },
-              { label: "Theme alignment", count: "41% drift", when: "1h ago" },
-              { label: "Full scan", count: "7 flags", when: "Yesterday" },
-            ].map((s) => (
-              <div key={s.label} className="mb-2.5 flex items-center justify-between last:mb-0">
-                <div>
-                  <p className="text-xs text-ink">{s.label}</p>
-                  <p className="text-[10px] text-ink/40">{s.count}</p>
-                </div>
-                <span className="text-[10px] text-ink/35">{s.when}</span>
-              </div>
-            ))}
-          </div>
-        </motion.div>
+        )}
       </div>
     </div>
   );
