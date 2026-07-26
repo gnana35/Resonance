@@ -31,3 +31,28 @@ body {
   color: var(--ink);
   font-family: var(--font-body), Georgia, serif;
 }
+
+/*
+ * Toast entrance. Animates position only, never opacity: a hidden page freezes
+ * the animation timeline mid-flight, and a toast that is holding `opacity: 0`
+ * is a notification the writer never sees. Sliding degrades safely — worst
+ * case it sits 12px low and fully legible.
+ */
+@keyframes toast-in {
+  from {
+    transform: translateY(12px);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.animate-toast-in {
+  animation: toast-in 200ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-toast-in {
+    animation: none;
+  }
+}

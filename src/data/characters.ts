@@ -1,3 +1,5 @@
+import type { StoredStoryFit } from "@/lib/storyFit";
+
 export type CharacterStat = {
   label: string;
   value: number;
@@ -15,6 +17,11 @@ export type Character = {
   role: string;
   description: string;
   traits: string[];
+  /** Draft characters are early ideas — they get the advisory Story Fit read-out. */
+  isDraft?: boolean;
+  /** Generated after a draft is saved, not while the form is being filled in. */
+  storyFit?: StoredStoryFit;
+  avatarColor?: number;
   age?: number;
   occupation?: string;
   origin?: string;
@@ -24,7 +31,6 @@ export type Character = {
   roleInStory?: string;
   stats?: CharacterStat[];
   keyTraits?: string[];
-  quote?: string;
   arcSummary?: string;
   arcLabels?: [string, string];
   arcPoints?: number[];
@@ -61,7 +67,6 @@ export const CHARACTERS: Character[] = [
       "Determined to uncover the truth",
       "Quick to act, slow to forgive",
     ],
-    quote: "I don't remember where I come from. But I know where I'm going.",
     arcSummary:
       "Lira starts the story broken and uncertain. Through trials, loss, and trust, she embraces her identity and purpose.",
     arcLabels: ["Haunted", "Whole"],
@@ -114,7 +119,6 @@ export const CHARACTERS: Character[] = [
       "Haunted by a past failure",
       "Uneasy around authority",
     ],
-    quote: "You can't keep running.",
     arcSummary:
       "Kael begins closed off and self-punishing. Standing beside Lira gives him a reason to forgive himself.",
     arcLabels: ["Guarded", "Redeemed"],
@@ -161,7 +165,6 @@ export const CHARACTERS: Character[] = [
       "Withholds information as leverage",
       "Views individuals as expendable",
     ],
-    quote: "Order was never meant to be understood. Only obeyed.",
     arcSummary:
       "The Council's true nature is revealed gradually, from distant threat to active architect of the story's central mystery.",
     arcLabels: ["Hidden", "Exposed"],
@@ -208,7 +211,6 @@ export const CHARACTERS: Character[] = [
       "Carries old regrets",
       "Trusts knowledge over instinct",
     ],
-    quote: "Some doors are better left closed. I opened one anyway.",
     arcSummary:
       "Veyndor must decide whether to finally tell Lira the full truth of her past, and his role in it.",
     arcLabels: ["Withholding", "Honest"],
@@ -255,7 +257,6 @@ export const CHARACTERS: Character[] = [
       "Loyal to his oath",
       "Slow to question authority",
     ],
-    quote: "I took an oath. It has to mean something.",
     arcSummary:
       "Aric's faith in the Guard cracks as he's forced to choose between his oath and his conscience.",
     arcLabels: ["Dutiful", "Defiant"],
@@ -297,7 +298,6 @@ export const CHARACTERS: Character[] = [
       "Fiercely independent",
       "Softens slowly, on her own terms",
     ],
-    quote: "I don't do this for free. I just haven't named my price yet.",
     arcSummary:
       "Shade's guarded independence gives way, in small moments, to something like belonging.",
     arcLabels: ["Alone", "Belonging"],

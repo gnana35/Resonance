@@ -10,7 +10,6 @@ import {
   Globe,
   Plus,
   Sparkles,
-  X,
 } from "lucide-react";
 import { motion, AnimatePresence, type Variants, type Transition } from "framer-motion";
 import { NOTIFICATIONS, type NotificationItem, type NotificationType } from "@/data/designer";

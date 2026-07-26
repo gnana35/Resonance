@@ -1,29 +1,42 @@
-const PALETTE = [
-  "from-gold-3/60 to-bg-1",
-  "from-violet-400/40 to-bg-1",
-  "from-emerald-500/30 to-bg-1",
-  "from-rose-500/30 to-bg-1",
-  "from-sky-500/30 to-bg-1",
-  "from-amber-500/30 to-bg-1",
+export const AVATAR_PALETTE = [
+  "from-emerald-500/40 to-bg-1",   // 0 — teal-green
+  "from-rose-500/35 to-bg-1",      // 1 — maroon/rose
+  "from-amber-500/40 to-bg-1",     // 2 — gold-brown
+  "from-violet-400/45 to-bg-1",    // 3 — violet
+  "from-sky-500/35 to-bg-1",       // 4 — sky blue
+  "from-gold-3/65 to-bg-1",        // 5 — warm gold
+  "from-indigo-400/40 to-bg-1",    // 6 — indigo
+  "from-fuchsia-500/30 to-bg-1",   // 7 — fuchsia
+  "from-teal-400/35 to-bg-1",      // 8 — teal
+  "from-orange-500/35 to-bg-1",    // 9 — orange
+  "from-lime-500/30 to-bg-1",      // 10 — lime
+  "from-cyan-400/35 to-bg-1",      // 11 — cyan
 ];
 
-function paletteIndex(name: string) {
+function hashIndex(name: string) {
   let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = (hash + name.charCodeAt(i)) % PALETTE.length;
+  for (let i = 0; i < name.length; i++)
+    hash = (hash + name.charCodeAt(i)) % AVATAR_PALETTE.length;
   return hash;
 }
 
 export function CharacterAvatar({
   name,
+  avatarColor,
   className = "",
 }: {
   name: string;
+  avatarColor?: number;
   className?: string;
 }) {
+  const index =
+    avatarColor !== undefined && avatarColor >= 0 && avatarColor < AVATAR_PALETTE.length
+      ? avatarColor
+      : hashIndex(name);
   const initial = name.trim().charAt(0).toUpperCase();
   return (
     <div
-      className={`flex items-center justify-center bg-gradient-to-br font-display text-gold-1 ${PALETTE[paletteIndex(name)]} ${className}`}
+      className={`flex items-center justify-center bg-gradient-to-br font-display text-gold-1 ${AVATAR_PALETTE[index]} ${className}`}
     >
       {initial}
     </div>

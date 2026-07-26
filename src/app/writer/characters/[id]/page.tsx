@@ -2,6 +2,7 @@
 
 import { use, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Brain,
   Briefcase,
@@ -9,16 +10,23 @@ import {
   CircleDot,
   Heart,
   MapPin,
-  MoreVertical,
   Pencil,
-  Quote,
   Shield,
   ShieldCheck,
   Users,
   Zap,
 } from "lucide-react";
-import { CHARACTERS } from "@/data/characters";
+import { useCharacters } from "@/context/CharactersContext";
 import { CharacterAvatar } from "@/components/CharacterAvatar";
+import { StoryFitPending, StoryFitRating } from "@/components/StoryFitRating";
+import { DraftBadge } from "@/components/DraftBadge";
+import {
+  CharacterMenu,
+  type CharacterMenuAction,
+  DeleteCharacterModal,
+  DesignCharacterModal,
+  EditCharacterModal,
+} from "@/components/CharacterModals";
 
 const TABS = ["Overview", "Role", "Relationships", "Arc", "Notes"] as const;
 type Tab = (typeof TABS)[number];
@@ -37,9 +45,48 @@ export default function CharacterDetail({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const character = CHARACTERS.find((c) => c.id === id);
-  const [activeTab, setActiveTab] = useState<Tab>("Overview");
+  const { characters, hydrated, updateCharacter } = useCharacters();
+  const character = characters.find((c) => c.id === id);
+  const isDraft = character?.isDraft === true;
+  const router = useRouter();
+
+  // `?tab=story-impact` deep-links from the "Story Impact ready" notification.
+  // Read with the hook rather than `use(searchParams)`: the latter does not
+  // occupy a stable hook slot once its promise resolves, which reorders the
+  // hooks below it between renders.
+  const requestedTab = useSearchParams().get("tab");
+  const [activeTab, setActiveTab] = useState<Tab>(
+    requestedTab === "story-impact" ? "Arc" : "Overview",
+  );
   const [notes, setNotes] = useState(character?.notes ?? "");
+
+  // Modal state
+  const [showEdit, setShowEdit] = useState(false);
+  const [showDelete, setShowDelete] = useState(false);
+  const [showDesign, setShowDesign] = useState(false);
+
+  function handleMenuAction(action: CharacterMenuAction) {
+    if (action === "edit") setShowEdit(true);
+    else if (action === "delete") setShowDelete(true);
+    else if (action === "design") setShowDesign(true);
+    else if (action === "establish" && character) {
+      // Promotes the draft: the badge and the draft-only Story Impact tab go
+      // away, and the Arc tab takes over from here on.
+      updateCharacter(character.id, { isDraft: false, storyFit: undefined });
+      setActiveTab("Overview");
+    }
+  }
+
+  // On a fresh page load the first render only has the seed characters, so a
+  // recently created character would briefly look missing. Wait for the stored
+  // list before deciding the id is unknown.
+  if (!character && !hydrated) {
+    return (
+      <div className="px-6 py-8 md:px-10">
+        <p className="text-ink/50">Loading character…</p>
+      </div>
+    );
+  }
 
   if (!character) {
     return (
@@ -82,19 +129,13 @@ export default function CharacterDetail({
 
         <div className="flex items-center gap-3">
           <button
-            onClick={() => console.log("edit character", character.id)}
+            onClick={() => setShowEdit(true)}
             className="flex items-center gap-2 rounded-full border border-gold-3/30 px-4 py-2 text-sm text-ink transition-colors hover:border-gold-2/60 hover:text-gold-1"
           >
             <Pencil className="h-3.5 w-3.5" />
             Edit Character
           </button>
-          <button
-            onClick={() => console.log("character menu", character.id)}
-            aria-label="More options"
-            className="text-ink/50 hover:text-ink"
-          >
-            <MoreVertical className="h-4 w-4" />
-          </button>
+          <CharacterMenu isDraft={isDraft} onSelect={handleMenuAction} />
         </div>
       </div>
 
@@ -102,16 +143,28 @@ export default function CharacterDetail({
         <div>
           <CharacterAvatar
             name={character.name}
+            avatarColor={character.avatarColor}
             className="aspect-[4/5] w-full rounded-2xl text-6xl"
           />
 
           <h1 className="mt-5 font-display text-3xl text-gold-1">
             {character.name}
           </h1>
-          <p className="text-ink/60">{character.role}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-ink/60">{character.role}</p>
+            {isDraft && <DraftBadge />}
+          </div>
 
           <dl className="mt-5 flex flex-col gap-3 text-sm">
-            <MetaRow icon={Users} label="Age" value={character.age ?? "—"} />
+            <MetaRow
+              icon={Users}
+              label="Age"
+              value={
+                character.age !== undefined && !Number.isNaN(character.age)
+                  ? character.age
+                  : "—"
+              }
+            />
             <MetaRow
               icon={Briefcase}
               label="Occupation"
@@ -139,7 +192,7 @@ export default function CharacterDetail({
             {character.traits.map((trait) => (
               <span
                 key={trait}
-                className="rounded-full bg-gold-2/10 px-3 py-1 text-xs text-gold-2"
+                className="rounded-full bg-gold-2/10 px-3 py-1 text-xs text-ink/60"
               >
                 {trait}
               </span>
@@ -159,7 +212,7 @@ export default function CharacterDetail({
                     : "border-transparent text-ink/50 hover:text-ink"
                 }`}
               >
-                {tab}
+                {isDraft && tab === "Arc" ? "Story Impact" : tab}
               </button>
             ))}
           </div>
@@ -189,20 +242,6 @@ export default function CharacterDetail({
                         </li>
                       ))}
                     </ul>
-                  </div>
-                )}
-
-                {character.quote && (
-                  <div className="max-w-xl rounded-2xl border border-gold-3/25 bg-bg-1 p-5">
-                    <div className="flex items-center gap-2 text-gold-2">
-                      <Quote className="h-4 w-4" />
-                      <h3 className="font-display text-lg">
-                        Character Quote
-                      </h3>
-                    </div>
-                    <p className="mt-3 italic text-ink/80">
-                      &ldquo;{character.quote}&rdquo;
-                    </p>
                   </div>
                 )}
               </div>
@@ -258,7 +297,7 @@ export default function CharacterDetail({
               <div className="flex flex-col gap-4">
                 {character.relationships && character.relationships.length > 0 ? (
                   character.relationships.map((rel) => {
-                    const other = CHARACTERS.find(
+                    const other = characters.find(
                       (c) => c.id === rel.characterId,
                     );
                     if (!other) return null;
@@ -270,6 +309,7 @@ export default function CharacterDetail({
                       >
                         <CharacterAvatar
                           name={other.name}
+                          avatarColor={other.avatarColor}
                           className="h-12 w-12 shrink-0 rounded-lg text-lg"
                         />
                         <div className="min-w-0 flex-1">
@@ -277,7 +317,7 @@ export default function CharacterDetail({
                             <p className="font-display text-base text-ink">
                               {other.name}
                             </p>
-                            <span className="rounded-full bg-gold-2/10 px-2.5 py-0.5 text-xs text-gold-2">
+                            <span className="rounded-full bg-gold-2/10 px-2.5 py-0.5 text-xs text-ink/60">
                               {rel.relation}
                             </span>
                           </div>
@@ -294,7 +334,27 @@ export default function CharacterDetail({
               </div>
             )}
 
-            {activeTab === "Arc" && (
+            {activeTab === "Arc" && isDraft && (
+              <div className="flex max-w-xl flex-col gap-6">
+                <div className="rounded-2xl border border-gold-3/25 bg-bg-1 p-5">
+                  <h3 className="font-display text-lg text-gold-1">
+                    Story Impact
+                  </h3>
+                  <p className="mt-4 text-ink/75">
+                    {character.arcSummary ??
+                      "No story impact described yet. Add one in Edit Character to sharpen this read."}
+                  </p>
+                </div>
+
+                {character.storyFit ? (
+                  <StoryFitRating result={character.storyFit} />
+                ) : (
+                  <StoryFitPending message="Generating Story Impact analysis… you'll be notified when it's ready." />
+                )}
+              </div>
+            )}
+
+            {activeTab === "Arc" && !isDraft && (
               <div className="max-w-xl rounded-2xl border border-gold-3/25 bg-bg-1 p-5">
                 <h3 className="font-display text-lg text-gold-1">
                   Character Arc
@@ -355,6 +415,27 @@ export default function CharacterDetail({
           </div>
         </div>
       </div>
+
+      {/* Modals */}
+      {showEdit && (
+        <EditCharacterModal
+          character={character}
+          onClose={() => setShowEdit(false)}
+        />
+      )}
+      {showDelete && (
+        <DeleteCharacterModal
+          character={character}
+          onClose={() => setShowDelete(false)}
+          onDeleted={() => router.push("/writer/characters")}
+        />
+      )}
+      {showDesign && (
+        <DesignCharacterModal
+          character={character}
+          onClose={() => setShowDesign(false)}
+        />
+      )}
     </div>
   );
 }

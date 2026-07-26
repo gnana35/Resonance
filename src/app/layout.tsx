@@ -40,7 +40,16 @@ export default function RootLayout({
       lang="en"
       className={`${cinzel.variable} ${cormorant.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-bg-0">
+      {/*
+        Browser extensions (Grammarly, password managers) add attributes to
+        <body> before React hydrates, which reads as a mismatch. This suppresses
+        the warning for this element's own attributes only — real mismatches
+        anywhere inside the tree still surface normally.
+      */}
+      <body
+        className="min-h-full flex flex-col bg-bg-0"
+        suppressHydrationWarning
+      >
         <PageTransition>{children}</PageTransition>
       </body>
     </html>

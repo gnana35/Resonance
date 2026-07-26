@@ -1,6 +1,11 @@
 export type Scene = {
   id: string;
+  /** Auto-generated ordinal label, e.g. "Scene 3". Derived at render time; stored here for id-stable display. */
   title: string;
+  /** Optional user-given name. Display as "Scene N: name" when present. */
+  name?: string;
+  content?: string;
+  aiGenerated?: boolean;
 };
 
 export type Chapter = {
@@ -8,6 +13,7 @@ export type Chapter = {
   title: string;
   summary: string;
   scenes: Scene[];
+  content?: string;
 };
 
 export type OutlineItem = {
@@ -17,12 +23,14 @@ export type OutlineItem = {
   summary?: string;
   scenes?: Scene[];
   chapters?: Chapter[];
+  content?: string;
 };
 
 function scenes(count: number, prefix: string): Scene[] {
   return Array.from({ length: count }, (_, i) => ({
     id: `${prefix}-scene-${i + 1}`,
     title: `Scene ${i + 1}`,
+    aiGenerated: true,
   }));
 }
 

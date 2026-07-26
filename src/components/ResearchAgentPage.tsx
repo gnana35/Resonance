@@ -7,9 +7,7 @@ import {
   BookOpen,
   Bot,
   ChevronDown,
-  ChevronRight,
   Clock,
-  FileText,
   FlaskConical,
   Globe,
   Heart,
@@ -20,9 +18,8 @@ import {
   Sparkles,
   TrendingDown,
   TrendingUp,
-  X,
 } from "lucide-react";
-import { motion, AnimatePresence, type Variants, type Transition } from "framer-motion";
+import { motion, type Variants, type Transition } from "framer-motion";
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -109,6 +106,13 @@ const EVOLUTION_ROWS: EvolutionRow[] = [
   { aspect: "Visual Direction", v1: "Bright, warm, vibrant palette", v2: "Some darker tones introduced", v3: "Dark, muted, stormy palette", impact: "Moderate Shift" },
   { aspect: "Theme Alignment", v1: "Romance / Comedy (100%)", v2: "Romance / Comedy (82%)", v3: "Romance / Comedy (59%)", impact: "Major Drift" },
 ];
+
+// Module scope: ids are minted from event handlers, never during render.
+let messageIdCounter = 0;
+function nextMessageId() {
+  messageIdCounter += 1;
+  return `msg-${messageIdCounter}`;
+}
 
 async function runAgentStream(
   query: string,
@@ -461,8 +465,8 @@ export function ResearchAgentPage({ accentClass = "violet" }: { accentClass?: "v
   async function sendMessage(text: string, mode: ScanMode) {
     if (!text.trim() || isRunning) return;
 
-    const userMsg: Message = { id: Date.now().toString(), role: "user", text, status: "done" };
-    const agentMsgId = (Date.now() + 1).toString();
+    const userMsg: Message = { id: nextMessageId(), role: "user", text, status: "done" };
+    const agentMsgId = nextMessageId();
     const agentMsg: Message = { id: agentMsgId, role: "agent", text: "", status: "typing" };
 
     setMessages((m) => [...m, userMsg, agentMsg]);
