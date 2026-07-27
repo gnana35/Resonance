@@ -14,6 +14,7 @@ export type Note = {
   content: string;
   date: string;
   pinned?: boolean;
+  favorited?: boolean;
   thumbnail?: "armor" | "architecture";
 };
 
