@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import LocationsMap from "@/components/LocationsMap";
 import {
   ReactFlow,
   Background,
@@ -15,7 +16,6 @@ import "@xyflow/react/dist/style.css";
 import {
   ArrowRight,
   Building2,
-  ChevronDown,
   Gem,
   MapPin,
   Search,
@@ -27,7 +27,7 @@ import {
 import { CHARACTERS } from "@/data/characters";
 import { WORLD_ENTITIES, WORLD_EDGES, type RelationshipKind } from "@/data/world";
 
-type EntityType = "character" | "faction" | "location" | "event" | "object";
+type EntityType = "character" | "Affiliation" | "location" | "event" | "object";
 
 type GraphNodeInfo = {
   id: string;
@@ -50,7 +50,7 @@ const CHARACTER_NODES: GraphNodeInfo[] = CHARACTER_NODE_IDS.map((id) => {
   return {
     id: character.id,
     label: character.name,
-    entityType: id === "the-council" ? "faction" : "character",
+    entityType: id === "the-council" ? "Affiliation" : "character",
     subtitle: GRAPH_SUBTITLES[id] ?? character.description,
     detail: character.bio ?? character.description,
   };
@@ -59,7 +59,7 @@ const CHARACTER_NODES: GraphNodeInfo[] = CHARACTER_NODE_IDS.map((id) => {
 const ENTITY_NODES: GraphNodeInfo[] = WORLD_ENTITIES.map((e) => ({
   id: e.id,
   label: e.label,
-  entityType: e.type,
+  entityType: e.type as EntityType,
   subtitle: e.subtitle,
   detail: e.detail,
 }));
@@ -81,13 +81,43 @@ const POSITIONS: Record<string, { x: number; y: number }> = {
 
 const TYPE_STYLES: Record<
   EntityType,
-  { border: string; icon: typeof User; dot: string }
+  { border: string; icon: typeof User; dot: string; bg: string; label: string }
 > = {
-  character: { border: "#d9a84e", icon: User, dot: "bg-gold-2" },
-  faction: { border: "#a78bfa", icon: Shield, dot: "bg-violet-400" },
-  location: { border: "#38bdf8", icon: MapPin, dot: "bg-sky-400" },
-  event: { border: "#34d399", icon: Zap, dot: "bg-emerald-400" },
-  object: { border: "#9ca3af", icon: Gem, dot: "bg-gray-400" },
+  character: {
+    border: "#d9a84e",
+    icon: User,
+    dot: "bg-gold-2",
+    bg: "rgba(217,168,78,0.12)",
+    label: "Character",
+  },
+  Affiliation: {
+    border: "#a78bfa",
+    icon: Shield,
+    dot: "bg-violet-400",
+    bg: "rgba(167,139,250,0.12)",
+    label: "Affiliation",
+  },
+  location: {
+    border: "#38bdf8",
+    icon: MapPin,
+    dot: "bg-sky-400",
+    bg: "rgba(56,189,248,0.12)",
+    label: "Location",
+  },
+  event: {
+    border: "#34d399",
+    icon: Zap,
+    dot: "bg-emerald-400",
+    bg: "rgba(52,211,153,0.12)",
+    label: "Event",
+  },
+  object: {
+    border: "#9ca3af",
+    icon: Gem,
+    dot: "bg-gray-400",
+    bg: "rgba(156,163,175,0.12)",
+    label: "Object",
+  },
 };
 
 const EDGE_STYLES: Record<RelationshipKind, { stroke: string; dash?: string }> = {
@@ -110,13 +140,15 @@ const LEGEND: { label: string; kind: RelationshipKind }[] = [
 
 const TYPE_LEGEND: { label: string; type: EntityType }[] = [
   { label: "Character", type: "character" },
-  { label: "Faction", type: "faction" },
+  { label: "Affiliation", type: "Affiliation" },
   { label: "Location", type: "location" },
   { label: "Event", type: "event" },
   { label: "Object", type: "object" },
 ];
 
-const SUB_TABS = ["World Map", "Locations", "Factions", "History", "Lore"] as const;
+const ALL_TYPES = TYPE_LEGEND.map((t) => t.type);
+
+const SUB_TABS = ["World Map", "Locations"] as const;
 
 function WorldNodeCard({ data, selected }: NodeProps<Node<GraphNodeInfo>>) {
   const style = TYPE_STYLES[data.entityType];
@@ -147,40 +179,144 @@ function WorldNodeCard({ data, selected }: NodeProps<Node<GraphNodeInfo>>) {
 
 const nodeTypes = { worldNode: WorldNodeCard };
 
+// ─── Category filter pill ──────────────────────────────────────────────────
+function FilterPill({
+  label,
+  color,
+  bg,
+  active,
+  onClick,
+}: {
+  label: string;
+  color: string;
+  bg: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-all duration-150"
+      style={
+        active
+          ? {
+              borderColor: color,
+              backgroundColor: bg,
+              color: color,
+              boxShadow: `0 0 0 1px ${color}55`,
+            }
+          : {
+              borderColor: "transparent",
+              backgroundColor: "transparent",
+              color: "rgba(207,214,230,0.35)",
+            }
+      }
+    >
+      <span
+        className="h-2 w-2 rounded-full transition-all duration-150"
+        style={{ backgroundColor: active ? color : "rgba(207,214,230,0.25)" }}
+      />
+      {label}
+    </button>
+  );
+}
+
+// ─── "All" pill ────────────────────────────────────────────────────────────
+function AllPill({ active, onClick }: { active: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="rounded-full border px-3 py-1 text-xs font-medium transition-all duration-150"
+      style={
+        active
+          ? {
+              borderColor: "#d9a84e",
+              backgroundColor: "rgba(217,168,78,0.10)",
+              color: "#f7e7b8",
+              boxShadow: "0 0 0 1px rgba(217,168,78,0.40)",
+            }
+          : {
+              borderColor: "rgba(138,106,47,0.4)",
+              backgroundColor: "transparent",
+              color: "rgba(207,214,230,0.45)",
+            }
+      }
+    >
+      All
+    </button>
+  );
+}
+
 export default function WorldMap() {
   const [subTab, setSubTab] = useState<(typeof SUB_TABS)[number]>("World Map");
   const [selectedId, setSelectedId] = useState<string>("veyndor-city");
+  const [activeTypes, setActiveTypes] = useState<Set<EntityType>>(new Set(ALL_TYPES));
 
-  const nodes: Node[] = useMemo(
-    () =>
-      ALL_NODES.map((n) => ({
+  const allActive = activeTypes.size === ALL_TYPES.length;
+
+  function toggleAll() {
+    if (allActive) {
+      // Clear all
+      setActiveTypes(new Set());
+    } else {
+      // Select all
+      setActiveTypes(new Set(ALL_TYPES));
+    }
+  }
+
+  function toggleType(type: EntityType) {
+    setActiveTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) {
+        next.delete(type);
+      } else {
+        next.add(type);
+      }
+      return next;
+    });
+  }
+
+  // Only nodes whose type is currently active are shown.
+  // An edge is shown only when both its source and target nodes are visible.
+  const visibleIds = useMemo(
+    () => new Set(ALL_NODES.filter((n) => activeTypes.has(n.entityType)).map((n) => n.id)),
+    [activeTypes],
+  );
+
+  const nodes: Node[] = useMemo(() => {
+    return ALL_NODES.map((n) => {
+      const visible = visibleIds.has(n.id);
+      return {
         id: n.id,
         type: "worldNode",
         position: POSITIONS[n.id] ?? { x: 0, y: 0 },
         data: n,
-      })),
-    [],
-  );
+        hidden: !visible,
+        selectable: visible,
+        draggable: visible,
+      };
+    });
+  }, [visibleIds]);
 
-  const edges: Edge[] = useMemo(
-    () =>
-      WORLD_EDGES.map((e, i) => {
-        const style = EDGE_STYLES[e.kind];
-        return {
-          id: `e${i}`,
-          source: e.source,
-          target: e.target,
-          label: e.label,
-          labelStyle: { fill: "#cfd6e6", fontSize: 11 },
-          labelBgStyle: { fill: "#0a0e1c", fillOpacity: 0.85 },
-          style: {
-            stroke: style.stroke,
-            strokeDasharray: style.dash,
-          },
-        };
-      }),
-    [],
-  );
+  const edges: Edge[] = useMemo(() => {
+    return WORLD_EDGES.map((e, i) => {
+      const visible = visibleIds.has(e.source) && visibleIds.has(e.target);
+      const style = EDGE_STYLES[e.kind];
+      return {
+        id: `e${i}`,
+        source: e.source,
+        target: e.target,
+        label: visible ? e.label : undefined,
+        labelStyle: { fill: "#cfd6e6", fontSize: 11 },
+        labelBgStyle: { fill: "#0a0e1c", fillOpacity: 0.85 },
+        hidden: !visible,
+        style: {
+          stroke: style.stroke,
+          strokeDasharray: style.dash,
+        },
+      };
+    });
+  }, [visibleIds]);
 
   const selectedNode = ALL_NODES.find((n) => n.id === selectedId);
   const connections = WORLD_EDGES.filter(
@@ -195,7 +331,7 @@ export default function WorldMap() {
     <div className="flex flex-col px-6 py-8 md:px-10">
       <h1 className="font-display text-3xl text-gold-1">The World</h1>
       <p className="mt-2 text-ink/70">
-        Explore the people, places, factions, and events that shape your
+        Explore the people, places, Affiliations, and events that shape your
         story.
       </p>
 
@@ -218,13 +354,6 @@ export default function WorldMap() {
 
         <div className="mb-2 flex items-center gap-2">
           <button
-            onClick={() => console.log("toggle view mode")}
-            className="flex items-center gap-2 rounded-md border border-gold-3/30 px-3 py-1.5 text-sm text-ink hover:border-gold-2/50"
-          >
-            View: Relationships
-            <ChevronDown className="h-3.5 w-3.5" />
-          </button>
-          <button
             onClick={() => console.log("search world")}
             aria-label="Search"
             className="rounded-md border border-gold-3/30 p-2 text-ink/70 hover:border-gold-2/50 hover:text-ink"
@@ -241,7 +370,9 @@ export default function WorldMap() {
         </div>
       </div>
 
-      {subTab !== "World Map" ? (
+      {subTab === "Locations" ? (
+        <LocationsMap />
+      ) : subTab !== "World Map" ? (
         <div className="mt-16 flex flex-col items-center text-center text-ink/60">
           <p className="font-display text-xl text-gold-1">{subTab}</p>
           <p className="mt-2 max-w-sm">Coming soon.</p>
@@ -249,22 +380,36 @@ export default function WorldMap() {
       ) : (
         <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[1fr_320px]">
           <div className="rounded-2xl border border-gold-3/25 bg-bg-1">
-            <div className="mb-4 flex flex-wrap gap-4 border-b border-gold-3/20 p-4 text-xs text-ink/60">
-              {TYPE_LEGEND.map((item) => (
-                <span key={item.type} className="flex items-center gap-1.5">
-                  <span
-                    className={`h-2 w-2 rounded-full ${TYPE_STYLES[item.type].dot}`}
+            {/* ── Legend / filter bar ───────────────────────────────────── */}
+            <div className="flex flex-wrap items-center gap-2 border-b border-gold-3/20 px-4 py-3">
+              <AllPill active={allActive} onClick={toggleAll} />
+              <span className="h-4 w-px bg-gold-3/30" />
+              {TYPE_LEGEND.map((item) => {
+                const s = TYPE_STYLES[item.type];
+                return (
+                  <FilterPill
+                    key={item.type}
+                    label={item.label}
+                    color={s.border}
+                    bg={s.bg}
+                    active={activeTypes.has(item.type)}
+                    onClick={() => toggleType(item.type)}
                   />
-                  {item.label}
-                </span>
-              ))}
+                );
+              })}
             </div>
+
             <div className="h-[640px] w-full">
               <ReactFlow
                 nodes={nodes}
                 edges={edges}
                 nodeTypes={nodeTypes}
-                onNodeClick={(_, node) => setSelectedId(node.id)}
+                onNodeClick={(_, node) => {
+                  const info = ALL_NODES.find((n) => n.id === node.id);
+                  if (info && activeTypes.has(info.entityType)) {
+                    setSelectedId(node.id);
+                  }
+                }}
                 fitView
                 proOptions={{ hideAttribution: true }}
                 colorMode="dark"

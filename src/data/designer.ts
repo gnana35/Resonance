@@ -128,7 +128,7 @@ export const SUBMISSIONS: Submission[] = [
   {
     id: "iron-ward-sentinel",
     title: "Iron Ward Sentinel – Character Concept",
-    description: "Elite guard armor concept for the Iron Ward faction.",
+    description: "Elite guard armor concept for the Iron Ward Affiliation.",
     type: "Character",
     submittedBy: "Luna Designer",
     date: "May 11, 2025 · 3:15 PM",
@@ -138,7 +138,7 @@ export const SUBMISSIONS: Submission[] = [
   {
     id: "shrouded-dagger-weapon",
     title: "Shrouded Dagger – Weapon Design",
-    description: "Concealed blade used by the Shrouded faction.",
+    description: "Concealed blade used by the Shrouded Affiliation.",
     type: "Weapon",
     submittedBy: "Luna Designer",
     date: "May 10, 2025 · 1:00 PM",
@@ -472,7 +472,7 @@ export const MUSE_SUGGESTIONS: Record<MuseCategory, MuseCard[]> = {
     {
       id: "aether-accord",
       title: "The Aether Accord",
-      description: "A treaty between factions that trust each other least.",
+      description: "A treaty between Affiliations that trust each other least.",
       tags: ["Political", "Fragile", "Tense"],
     },
     {
@@ -669,7 +669,7 @@ export type Collection = { id: string; name: string; count: number };
 export const COLLECTIONS: Collection[] = [
   { id: "core-game-assets", name: "Core Game Assets", count: 342 },
   { id: "chapter-1", name: "Chapter 1 - Aetherfall", count: 128 },
-  { id: "enemies-factions", name: "Enemies - Factions", count: 96 },
+  { id: "enemies-Affiliations", name: "Enemies - Affiliations", count: 96 },
   { id: "ui-icons", name: "UI / Icons", count: 64 },
   { id: "reference-inspo", name: "Reference & Inspo", count: 58 },
 ];
