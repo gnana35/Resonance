@@ -15,10 +15,8 @@ import {
   Download,
   Loader2,
   MoreHorizontal,
-  PenTool,
   Save,
   Share2,
-  ShieldCheck,
   Sparkles,
 } from "lucide-react";
 import {
@@ -27,7 +25,6 @@ import {
 } from "@/components/SketchpadCanvas";
 import { LayersPanel }    from "@/components/LayersPanel";
 import { ReferencesPanel } from "@/components/ReferencesPanel";
-import { ApprovalsPanel } from "@/components/ApprovalsPanel";
 import {
   loadDesign,
   createDesign,
@@ -46,17 +43,12 @@ import {
 
 /* ─── types ──────────────────────────────────────────────────────────────── */
 
-type WorkspaceTab = "Sketchpad" | "Approvals";
-
 type SaveState = "idle" | "saving" | "saved" | "error";
 
 /* ─── page ───────────────────────────────────────────────────────────────── */
 
 export default function DesignerHome() {
   const searchParams = useSearchParams();
-
-  /* ── tab ── */
-  const [tab, setTab] = useState<WorkspaceTab>("Sketchpad");
 
   /* ── design state ── */
   const [design,     setDesign]     = useState<DesignDoc | null>(null);
@@ -266,64 +258,33 @@ export default function DesignerHome() {
         </div>
       </div>
 
-      {/* ── Tabs ── */}
-      <div className="mt-5 flex gap-1 border-b border-violet-3/20">
-        {(["Sketchpad", "Approvals"] as WorkspaceTab[]).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`flex items-center gap-2 border-b-2 px-4 pb-2.5 pt-1 text-sm transition-colors ${
-              tab === t
-                ? "border-violet-2 text-violet-1"
-                : "border-transparent text-ink/50 hover:text-ink"
-            }`}
-          >
-            {t === "Sketchpad" ? (
-              <PenTool className="h-3.5 w-3.5" />
-            ) : (
-              <ShieldCheck className="h-3.5 w-3.5" />
-            )}
-            {t}
-          </button>
-        ))}
-      </div>
-
-      {/* ── Sketchpad tab ── */}
-      {tab === "Sketchpad" && (
-        <div className="mt-5 grid min-h-0 grid-cols-1 gap-5 xl:grid-cols-[1fr_300px]">
-          {/* Left: canvas */}
-          <div className="min-w-0">
-            {loadingDesign ? (
-              <div className="flex h-64 items-center justify-center gap-2 text-ink/40">
-                <Loader2 className="h-5 w-5 animate-spin" />
-                <span className="text-sm">Loading design…</span>
-              </div>
-            ) : (
-              <SketchpadCanvas
-                ref={canvasRef}
-                initialDesign={design}
-              />
-            )}
-          </div>
-
-          {/* Right: stacked panels */}
-          <div className="flex flex-col gap-4">
-            <LayersPanel />
-            <ReferencesPanel
-              references={references}
-              onAdd={handleAddReference}
-              onRemove={handleRemoveReference}
+      {/* ── Canvas ── */}
+      <div className="mt-5 grid min-h-0 grid-cols-1 gap-5 xl:grid-cols-[1fr_300px]">
+        {/* Left: canvas */}
+        <div className="min-w-0">
+          {loadingDesign ? (
+            <div className="flex h-64 items-center justify-center gap-2 text-ink/40">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span className="text-sm">Loading design…</span>
+            </div>
+          ) : (
+            <SketchpadCanvas
+              ref={canvasRef}
+              initialDesign={design}
             />
-          </div>
+          )}
         </div>
-      )}
 
-      {/* ── Approvals tab ── */}
-      {tab === "Approvals" && (
-        <div className="mt-5">
-          <ApprovalsPanel />
+        {/* Right: stacked panels */}
+        <div className="flex flex-col gap-4">
+          <LayersPanel />
+          <ReferencesPanel
+            references={references}
+            onAdd={handleAddReference}
+            onRemove={handleRemoveReference}
+          />
         </div>
-      )}
+      </div>
     </div>
   );
 }

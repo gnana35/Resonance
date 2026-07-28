@@ -36,6 +36,10 @@ export type Character = {
   arcPoints?: number[];
   relationships?: CharacterRelationship[];
   notes?: string;
+  /** Set after the writer clicks "Send to Designer". */
+  sentToDesigner?: boolean;
+  /** Asset IDs the designer has shared back with the writer. */
+  designerSharedAssetIds?: string[];
 };
 
 export const CHARACTERS: Character[] = [
