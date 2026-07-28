@@ -1,11 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
   Circle,
   Clock,
-  Filter,
+  ChevronDown,
   Map as MapIcon,
   Mountain,
   Package,
@@ -59,12 +59,71 @@ const TYPE_ICONS: Record<SubmissionType, typeof PenTool> = {
   Environment: Mountain,
 };
 
-const FILTERS = [
-  { label: "Type", value: "All Types" },
-  { label: "Status", value: "All Statuses" },
-  { label: "Submitted By", value: "All Members" },
-  { label: "Date Range", value: "All Time" },
+const ALL_TYPES: Array<"All Types" | SubmissionType> = [
+  "All Types",
+  "Concept Art",
+  "Weapon",
+  "Character",
+  "Map",
+  "Prop",
+  "Environment",
 ];
+
+const ALL_DATE_RANGES = [
+  "All Time",
+  "Last 7 Days",
+  "Last 30 Days",
+  "Last 90 Days",
+] as const;
+
+type DateRange = (typeof ALL_DATE_RANGES)[number];
+
+function daysSince(dateStr: string): number {
+  const parsed = new Date(dateStr.split("·")[0].trim());
+  return isNaN(parsed.getTime())
+    ? 0
+    : Math.floor((Date.now() - parsed.getTime()) / 86400000);
+}
+
+function FilterDropdown({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: string[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  return (
+    <div ref={ref} className="relative">
+      <p className="text-sm text-ink/60">{label}</p>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="mt-1.5 flex w-full items-center justify-between rounded-md border border-violet-3/30 px-3 py-2 text-left text-sm text-ink hover:border-violet-2/50"
+      >
+        {value}
+        <ChevronDown className={`h-3.5 w-3.5 text-ink/40 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="absolute left-0 right-0 top-full z-20 mt-1 rounded-lg border border-violet-3/30 bg-bg-0 py-1 shadow-lg">
+          {options.map((opt) => (
+            <button
+              key={opt}
+              onClick={() => { onChange(opt); setOpen(false); }}
+              className={`w-full px-3 py-2 text-left text-sm transition-colors hover:bg-violet-2/10 ${value === opt ? "text-violet-1" : "text-ink/80"}`}
+            >
+              {opt}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const ACTIVITY_STYLES: Record<string, { verb: string; color: string; icon: typeof CheckCircle2 }> = {
   approved: { verb: "approved", color: "text-emerald-400", icon: CheckCircle2 },
@@ -79,6 +138,8 @@ const ACTIVITY_STYLES: Record<string, { verb: string; color: string; icon: typeo
 export default function Approvals() {
   const [tab, setTab] = useState<StatusTab>("All Submissions");
   const [query, setQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState<"All Types" | SubmissionType>("All Types");
+  const [dateFilter, setDateFilter] = useState<DateRange>("All Time");
 
   const counts = useMemo(() => {
     const base: Record<StatusTab, number> = {
@@ -95,13 +156,19 @@ export default function Approvals() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
+    const dayLimit =
+      dateFilter === "Last 7 Days" ? 7 :
+      dateFilter === "Last 30 Days" ? 30 :
+      dateFilter === "Last 90 Days" ? 90 :
+      Infinity;
     return SUBMISSIONS.filter((s) => {
       const matchesTab = tab === "All Submissions" || s.status === tab;
-      const matchesQuery =
-        q.length === 0 || s.title.toLowerCase().includes(q);
-      return matchesTab && matchesQuery;
+      const matchesQuery = q.length === 0 || s.title.toLowerCase().includes(q);
+      const matchesType = typeFilter === "All Types" || s.type === typeFilter;
+      const matchesDate = daysSince(s.date) <= dayLimit;
+      return matchesTab && matchesQuery && matchesType && matchesDate;
     });
-  }, [tab, query]);
+  }, [tab, query, typeFilter, dateFilter]);
 
   return (
     <div className="px-6 py-8 md:px-10">
@@ -149,13 +216,14 @@ export default function Approvals() {
             className="w-full bg-transparent text-sm text-ink placeholder:text-ink/40 focus:outline-none"
           />
         </div>
-        <button
-          onClick={() => console.log("open filter")}
-          className="flex items-center gap-2 rounded-lg border border-violet-3/25 px-4 py-2.5 text-sm text-ink hover:border-violet-2/50"
-        >
-          <Filter className="h-3.5 w-3.5" />
-          Filter
-        </button>
+        {(typeFilter !== "All Types" || dateFilter !== "All Time") && (
+          <button
+            onClick={() => { setTypeFilter("All Types"); setDateFilter("All Time"); }}
+            className="flex items-center gap-2 rounded-lg border border-violet-3/25 px-4 py-2.5 text-sm text-violet-2 hover:border-violet-2/50"
+          >
+            Clear filters
+          </button>
+        )}
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[1fr_320px]">
@@ -249,18 +317,19 @@ export default function Approvals() {
 
           <div className="rounded-2xl border border-violet-3/25 bg-bg-1 p-5">
             <p className="text-ink">Filters</p>
-            <div className="mt-3 flex flex-col gap-3">
-              {FILTERS.map((filter) => (
-                <div key={filter.label}>
-                  <p className="text-sm text-ink/60">{filter.label}</p>
-                  <button
-                    onClick={() => console.log("open filter", filter.label)}
-                    className="mt-1.5 w-full rounded-md border border-violet-3/30 px-3 py-2 text-left text-sm text-ink hover:border-violet-2/50"
-                  >
-                    {filter.value}
-                  </button>
-                </div>
-              ))}
+            <div className="mt-3 flex flex-col gap-4">
+              <FilterDropdown
+                label="Type"
+                options={ALL_TYPES}
+                value={typeFilter}
+                onChange={(v) => setTypeFilter(v as typeof typeFilter)}
+              />
+              <FilterDropdown
+                label="Date Range"
+                options={[...ALL_DATE_RANGES]}
+                value={dateFilter}
+                onChange={(v) => setDateFilter(v as DateRange)}
+              />
             </div>
           </div>
 

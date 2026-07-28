@@ -13,7 +13,6 @@ import {
   Palette,
   PenTool,
   Settings,
-  Sparkles,
   Image as ImageIcon,
 } from "lucide-react";
 
@@ -21,7 +20,6 @@ const NAV_ITEMS = [
   { href: "/designer",                       label: "Designer's Space", icon: Palette,        exact: true  },
   { href: "/designer/moodboard",             label: "Moodboard",        icon: ImageIcon                    },
   { href: "/designer/sketchpad",             label: "Sketchpad",        icon: PenTool                      },
-  { href: "/designer/ai-muse",               label: "AI Muse",          icon: Sparkles                     },
   { href: "/designer/assets",                label: "Assets",           icon: Folder                       },
   { href: "/designer/audio-music",           label: "Audio & Music",    icon: Music,          exact: true  },
   { href: "/designer/audio-music/analysis",  label: "Analysis",         icon: ActivitySquare               },

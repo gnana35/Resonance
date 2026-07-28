@@ -12,6 +12,32 @@
   --ink: #cfd6e6;
 }
 
+/* ── Sepia theme ─────────────────────────────────────────────────────────── */
+[data-theme="sepia"] {
+  --bg-0: #1e1610;
+  --bg-1: #2c2118;
+  --ink: #e8d8b8;
+  --gold-1: #f5e6c0;
+  --gold-2: #c9922a;
+  --gold-3: #8a6a2f;
+  --violet-1: #d4c9a8;
+  --violet-2: #b89d6a;
+  --violet-3: #7a6040;
+}
+
+/* ── Light theme ─────────────────────────────────────────────────────────── */
+[data-theme="light"] {
+  --bg-0: #f5f0e8;
+  --bg-1: #ede6d8;
+  --ink: #2a2420;
+  --gold-1: #6b4c10;
+  --gold-2: #a0711a;
+  --gold-3: #c9a84e;
+  --violet-1: #3d2b6e;
+  --violet-2: #6d4fc0;
+  --violet-3: #9b7de0;
+}
+
 @theme inline {
   --color-gold-1: var(--gold-1);
   --color-gold-2: var(--gold-2);

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   Area,
   AreaChart,
@@ -68,7 +69,18 @@ function StatCard({
   );
 }
 
+const DATE_RANGES = [
+  "May 10 – May 16, 2025",
+  "May 3 – May 9, 2025",
+  "Apr 26 – May 2, 2025",
+  "All time",
+];
+
 export default function Stats() {
+  const [dateRange, setDateRange] = useState(DATE_RANGES[0]);
+  const [showAllAchievements, setShowAllAchievements] = useState(false);
+  const [showHealthReport, setShowHealthReport] = useState(false);
+
   return (
     <div className="px-6 py-8 md:px-10">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -79,11 +91,16 @@ export default function Stats() {
           </p>
         </div>
         <button
-          onClick={() => console.log("change date range")}
+          onClick={() =>
+            setDateRange((prev) => {
+              const idx = DATE_RANGES.indexOf(prev);
+              return DATE_RANGES[(idx + 1) % DATE_RANGES.length];
+            })
+          }
           className="flex items-center gap-2 rounded-md border border-gold-3/30 px-3 py-1.5 text-sm text-ink hover:border-gold-2/50"
         >
           <Calendar className="h-3.5 w-3.5" />
-          May 10 – May 16, 2025
+          {dateRange}
         </button>
       </div>
 
@@ -263,11 +280,22 @@ export default function Stats() {
                   </div>
                 ))}
               </div>
+              {showHealthReport && (
+                <div className="mt-4 rounded-lg border border-gold-3/25 bg-bg-0 p-4 text-sm text-ink/70">
+                  <p className="mb-3 font-display text-gold-1">Story Health Report</p>
+                  {STORY_HEALTH.map((m) => (
+                    <div key={m.label} className="mb-2">
+                      <p className="text-ink">{m.label} — <span className="text-gold-2">{m.value}%</span></p>
+                      <p className="text-xs text-ink/50">{m.value >= 80 ? "Strong — no action needed." : m.value >= 60 ? "Some room for improvement." : "Needs attention."}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
               <button
-                onClick={() => console.log("view full story health report")}
+                onClick={() => setShowHealthReport((v) => !v)}
                 className="mt-6 w-full rounded-full border border-gold-2/50 py-2 text-sm text-gold-2 transition-colors hover:border-gold-1 hover:text-gold-1"
               >
-                View Full Story Health Report
+                {showHealthReport ? "Hide Story Health Report" : "View Full Story Health Report"}
               </button>
             </div>
           </div>
@@ -318,15 +346,15 @@ export default function Stats() {
             <div className="flex items-center justify-between">
               <p className="font-display text-lg text-gold-1">Achievements</p>
               <button
-                onClick={() => console.log("view all achievements")}
+                onClick={() => setShowAllAchievements((v) => !v)}
                 className="text-sm text-gold-2 hover:text-gold-1"
               >
-                View all
+                {showAllAchievements ? "Show less" : "View all"}
               </button>
             </div>
 
             <div className="mt-4 flex flex-col gap-4">
-              {ACHIEVEMENTS.map((achievement) => (
+              {(showAllAchievements ? ACHIEVEMENTS : ACHIEVEMENTS.slice(0, 3)).map((achievement) => (
                 <div key={achievement.id} className="flex items-start gap-3">
                   <div
                     className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${

@@ -9,10 +9,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
-  Grid2X2,
-  LayoutList,
   MessageSquare,
-  Plus,
   Sparkles,
 } from "lucide-react";
 import { motion, AnimatePresence, type Variants, type Transition } from "framer-motion";
@@ -233,25 +230,6 @@ export default function Analysis() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button className="flex items-center gap-2 rounded-lg border border-violet-3/30 bg-bg-1 px-3 py-2 text-sm text-ink/70 transition-colors hover:border-violet-2/50 hover:text-ink">
-            View: All Issues
-            <ChevronDown className="h-3.5 w-3.5 text-ink/40" />
-          </button>
-          <button className="rounded-lg border border-violet-3/30 bg-bg-1 p-2 text-ink/60 transition-colors hover:text-ink">
-            <LayoutList className="h-4 w-4" />
-          </button>
-          <button className="rounded-lg border border-violet-3/30 bg-bg-1 p-2 text-ink/60 transition-colors hover:text-ink">
-            <Grid2X2 className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => console.log("add new")}
-            className="flex items-center gap-1.5 rounded-lg bg-gold-2 px-4 py-2 text-sm font-medium text-bg-0 transition-opacity hover:opacity-90"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add New
-          </button>
-        </div>
       </motion.div>
 
       {/* ── two-column layout ── */}
