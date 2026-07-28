@@ -1,286 +1,329 @@
 "use client";
 
-import { useState } from "react";
-import Link from "next/link";
+/**
+ * Designer's Space page.
+ *
+ * Handles all coordination between the Sketchpad, References panel,
+ * and the Assets/Designs persistence layer.
+ *
+ * URL param ?design=<designId> opens an existing design on load.
+ */
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
-  ArrowRight,
-  Check,
-  ClipboardCheck,
-  Map as MapIcon,
-  Mountain,
-  Package,
-  Pencil,
+  Download,
+  Loader2,
+  MoreHorizontal,
   PenTool,
-  Play,
+  Save,
+  Share2,
+  ShieldCheck,
   Sparkles,
-  Sword,
-  User,
 } from "lucide-react";
 import {
-  DESIGN_PROGRESS,
-  MOOD_SWATCHES,
-  MOOD_TAGS,
-  MUSIC_THEMES,
-  OUTFIT_PROMPTS,
-  SUBMISSIONS,
-  type SubmissionType,
-} from "@/data/designer";
+  SketchpadCanvas,
+  type SketchpadHandle,
+} from "@/components/SketchpadCanvas";
+import { LayersPanel }    from "@/components/LayersPanel";
+import { ReferencesPanel } from "@/components/ReferencesPanel";
+import { ApprovalsPanel } from "@/components/ApprovalsPanel";
+import {
+  loadDesign,
+  createDesign,
+  updateDesign,
+  uploadReference,
+  assetToReference,
+  removeReference,
+  type DesignDoc,
+  type ReferenceItem,
+} from "@/lib/designs";
+import {
+  linkDesignToAsset,
+  saveCreatedAsset,
+  updateCreatedAsset,
+} from "@/lib/assets";
 
-const TYPE_ICONS: Record<SubmissionType, typeof User> = {
-  "Concept Art": PenTool,
-  Weapon: Sword,
-  Character: User,
-  Map: MapIcon,
-  Prop: Package,
-  Environment: Mountain,
-};
+/* ─── types ──────────────────────────────────────────────────────────────── */
 
-const RING_RADIUS = 40;
-const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+type WorkspaceTab = "Sketchpad" | "Approvals";
 
-const STATUS_STYLES: Record<string, string> = {
-  Pending: "bg-amber-500/15 text-amber-300",
-  Approved: "bg-emerald-500/15 text-emerald-300",
-  Rejected: "bg-red-500/15 text-red-300",
-  "Needs Changes": "bg-violet-500/15 text-violet-300",
-  Draft: "bg-ink/10 text-ink/60",
-};
+type SaveState = "idle" | "saving" | "saved" | "error";
+
+/* ─── page ───────────────────────────────────────────────────────────────── */
 
 export default function DesignerHome() {
-  const [selectedSwatch, setSelectedSwatch] = useState("royal-violet");
-  const [museTab, setMuseTab] = useState<"Music Themes" | "Outfit Prompts">(
-    "Music Themes",
-  );
+  const searchParams = useSearchParams();
 
-  const progressPct = Math.round(
-    (DESIGN_PROGRESS.completed / DESIGN_PROGRESS.total) * 100,
-  );
-  const ringOffset =
-    RING_CIRCUMFERENCE - (progressPct / 100) * RING_CIRCUMFERENCE;
+  /* ── tab ── */
+  const [tab, setTab] = useState<WorkspaceTab>("Sketchpad");
 
-  const suggestions = museTab === "Music Themes" ? MUSIC_THEMES : OUTFIT_PROMPTS;
+  /* ── design state ── */
+  const [design,     setDesign]     = useState<DesignDoc | null>(null);
+  const [references, setReferences] = useState<ReferenceItem[]>([]);
+  const [saveState,  setSaveState]  = useState<SaveState>("idle");
+  const [loadingDesign, setLoadingDesign] = useState(false);
+
+  /* ── canvas handle ── */
+  const canvasRef = useRef<SketchpadHandle>(null);
+
+  /* ── load design from ?design= param ── */
+  useEffect(() => {
+    const designId = searchParams.get("design");
+    if (!designId) return;
+
+    setLoadingDesign(true);
+    loadDesign(designId)
+      .then((doc) => {
+        if (doc) {
+          setDesign(doc);
+          setReferences(doc.references);
+        }
+      })
+      .catch(console.error)
+      .finally(() => setLoadingDesign(false));
+  }, [searchParams]);
+
+  /* ── save handler ── */
+
+  const handleSave = useCallback(async () => {
+    if (!canvasRef.current) return;
+    setSaveState("saving");
+
+    try {
+      const { blob, strokes, color, strokeWidth } = await canvasRef.current.getSnapshot();
+      const strokesJson = JSON.stringify(strokes);
+      const designName  = design?.name ?? "Untitled Sketch";
+
+      if (design) {
+        /* ── UPDATE existing design ── */
+        await Promise.all([
+          // 1. Overwrite the canvas thumbnail in Storage + update asset metadata
+          updateCreatedAsset(
+            design.assetId,
+            // storagePath was stored when the asset was first created —
+            // we derive it from the asset path convention
+            `created/${design.assetId.slice(-8)}/thumbnail.png`,
+            designName,
+            blob,
+          ).catch(() => {
+            // storagePath may differ; fall through — the design doc update
+            // still succeeds and the preview refreshes on next full save
+          }),
+          // 2. Update the Firestore design document
+          updateDesign(design.id, { strokesJson, references, color, strokeWidth }),
+        ]);
+        // Reflect updatedAt locally so the "last edited" label stays fresh
+        setDesign((prev) =>
+          prev ? { ...prev, strokesJson, references, color, strokeWidth, updatedAt: new Date() } : prev,
+        );
+      } else {
+        /* ── CREATE new design ── */
+        // a. Write asset record + thumbnail to Storage
+        const asset = await saveCreatedAsset(designName, blob, "image/png");
+        // b. Write design document linked to the asset
+        const newDesign = await createDesign({
+          assetId:     asset.id,
+          name:        designName,
+          strokesJson,
+          references,
+          color,
+          strokeWidth,
+        });
+        // Write designId back onto the asset so card navigation works
+        await linkDesignToAsset(asset.id, newDesign.id);
+        setDesign(newDesign);
+        // Update the browser URL so a refresh re-opens this design
+        const url = new URL(window.location.href);
+        url.searchParams.set("design", newDesign.id);
+        window.history.replaceState(null, "", url.toString());
+      }
+
+      setSaveState("saved");
+      setTimeout(() => setSaveState("idle"), 2500);
+    } catch (err) {
+      console.error("Save failed:", err);
+      setSaveState("error");
+      setTimeout(() => setSaveState("idle"), 3000);
+    }
+  }, [canvasRef, design, references]);
+
+  /* ── reference handlers (passed to ReferencesPanel) ── */
+
+  const handleAddReference = useCallback(async (file: File) => {
+    const item = await uploadReference(file);
+    const next = [...references, item];
+    setReferences(next);
+    // Persist to Firestore if a design is already saved
+    if (design) {
+      await updateDesign(design.id, { references: next });
+    }
+  }, [references, design]);
+
+  /**
+   * Called from the Assets page "Add to References" menu item.
+   * Receives an asset record and adds it without uploading a second copy.
+   */
+  const handleAddAssetAsReference = useCallback(async (asset: {
+    id: string; name: string; previewUrl: string | null; storagePath: string | null;
+  }) => {
+    const item = assetToReference(asset);
+    // Skip if already present
+    if (references.some((r) => r.id === item.id)) return;
+    const next = [...references, item];
+    setReferences(next);
+    if (design) {
+      await updateDesign(design.id, { references: next });
+    }
+  }, [references, design]);
+
+  const handleRemoveReference = useCallback(async (id: string) => {
+    const next = await removeReference(references, id);
+    setReferences(next);
+    if (design) {
+      await updateDesign(design.id, { references: next });
+    }
+  }, [references, design]);
+
+  /* expose addAssetAsReference on window for the Assets page to call */
+  useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window as any).__addAssetAsReference = handleAddAssetAsReference;
+    return () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      delete (window as any).__addAssetAsReference;
+    };
+  }, [handleAddAssetAsReference]);
+
+  /* ─── render ──────────────────────────────────────────────────────────── */
+
+  const saveLabel =
+    saveState === "saving" ? "Saving…"
+    : saveState === "saved" ? "Saved ✓"
+    : saveState === "error" ? "Error"
+    : "Save";
 
   return (
-    <div className="px-6 py-8 md:px-10">
-      <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <h1 className="font-display text-4xl text-violet-1">
-            The Designer&apos;s Space
-          </h1>
-          <p className="mt-2 text-lg text-violet-2">Visuals, Audio, Vibe</p>
-          <p className="mt-4 max-w-xl text-ink/70">
-            Built-in sketchpad, Image nodes.
-          </p>
-          <p className="max-w-xl text-ink/70">
-            The Creative Muse: Suggests musical themes, generates outfit
-            prompts.
-          </p>
-        </div>
+    <div className="flex min-h-0 flex-col px-6 py-6 md:px-10">
 
-        <div className="flex flex-wrap gap-4">
-          <div className="w-64 rounded-xl border border-violet-3/30 bg-bg-1 p-4">
-            <p className="text-sm text-ink/70">Mood Vibe</p>
-            <p className="mt-2 text-ink">
-              {MOOD_TAGS.join(" · ")}
-            </p>
-            <div className="mt-3 flex items-center gap-2.5">
-              {MOOD_SWATCHES.map((swatch) => {
-                const selected = selectedSwatch === swatch.id;
-                return (
-                  <button
-                    key={swatch.id}
-                    onClick={() => setSelectedSwatch(swatch.id)}
-                    aria-label={swatch.id}
-                    className="flex h-7 w-7 items-center justify-center rounded-full"
-                    style={{
-                      backgroundColor: swatch.color,
-                      boxShadow: selected
-                        ? `0 0 0 2px #0a0e1c, 0 0 0 4px #a78bfa`
-                        : undefined,
-                    }}
-                  >
-                    {selected && (
-                      <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />
-                    )}
-                  </button>
-                );
-              })}
-              <button
-                onClick={() => console.log("edit mood vibe")}
-                aria-label="Edit mood vibe"
-                className="ml-1 flex h-7 w-7 items-center justify-center rounded-full border border-violet-3/40 text-ink/60 hover:border-violet-2/60 hover:text-violet-1"
-              >
-                <Pencil className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
-
-          <div className="w-56 rounded-xl border border-violet-3/30 bg-bg-1 p-4">
-            <p className="text-sm text-ink/70">Design Progress</p>
-            <div className="mt-2 flex items-center gap-3">
-              <div className="relative h-16 w-16 shrink-0">
-                <svg viewBox="0 0 100 100" className="h-16 w-16 -rotate-90">
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r={RING_RADIUS}
-                    stroke="#5b4d8f44"
-                    strokeWidth="10"
-                    fill="none"
-                  />
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r={RING_RADIUS}
-                    stroke="#a78bfa"
-                    strokeWidth="10"
-                    fill="none"
-                    strokeDasharray={RING_CIRCUMFERENCE}
-                    strokeDashoffset={ringOffset}
-                    strokeLinecap="round"
-                  />
-                </svg>
-                <div className="absolute inset-0 flex items-center justify-center font-display text-sm text-violet-1">
-                  {progressPct}%
-                </div>
-              </div>
-              <div>
-                <p className="text-ink">
-                  {DESIGN_PROGRESS.completed} / {DESIGN_PROGRESS.total}
-                </p>
-                <p className="text-sm text-ink/50">Assets Completed</p>
-              </div>
-            </div>
-            <Link
-              href="/designer/assets"
-              className="mt-4 flex items-center justify-center gap-1.5 rounded-full border border-violet-2/50 py-2 text-sm text-violet-1 transition-colors hover:border-violet-1"
-            >
-              View All Assets
-              <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <div className="rounded-2xl border border-violet-3/30 bg-bg-1 p-5">
-          <div className="flex items-center gap-2 text-ink">
+      {/* ── Header ── */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <div className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-2/15">
             <Sparkles className="h-4 w-4 text-violet-2" />
-            The Creative Muse
           </div>
-          <p className="mt-1 text-sm text-ink/50">
-            AI suggestions to inspire your creativity
-          </p>
-
-          <div className="mt-4 flex gap-6 border-b border-violet-3/20">
-            {(["Music Themes", "Outfit Prompts"] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setMuseTab(tab)}
-                className={`-mb-px border-b-2 pb-2 text-sm transition-colors ${
-                  museTab === tab
-                    ? "border-violet-2 text-violet-1"
-                    : "border-transparent text-ink/50 hover:text-ink"
-                }`}
-              >
-                {tab}
-              </button>
-            ))}
+          <div>
+            <h1 className="font-display text-2xl text-violet-1">
+              Designer Space
+            </h1>
+            <p className="mt-0.5 text-sm text-ink/50">
+              {design
+                ? `Editing: ${design.name} · Last saved ${design.updatedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                : "Sketch. Create. Build your world."}
+            </p>
           </div>
+        </div>
 
-          <div className="mt-4 flex flex-col gap-3">
-            {suggestions.map((item) => (
-              <div key={item.id} className="flex items-center gap-3">
-                <button
-                  onClick={() => console.log("play", item.id)}
-                  aria-label={`Play ${item.title}`}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-violet-2/15 text-violet-1 transition-colors hover:bg-violet-2/25"
-                >
-                  <Play className="h-3.5 w-3.5" />
-                </button>
-                <div className="min-w-0 flex-1">
-                  <p className="text-ink">{item.title}</p>
-                  <div className="mt-1 flex gap-2">
-                    {item.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="rounded-full bg-violet-2/10 px-2.5 py-0.5 text-xs text-violet-2"
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => console.log("generate more", museTab)}
-            className="mt-5 flex w-full items-center justify-center gap-2 rounded-full bg-violet-2 py-2.5 text-sm font-medium text-bg-0 transition-colors hover:bg-violet-1"
+            onClick={() => console.log("export")}
+            className="flex items-center gap-1.5 rounded-lg border border-violet-3/30 px-3 py-1.5 text-sm text-ink/70 transition-colors hover:border-violet-2/50 hover:text-ink"
           >
-            <Sparkles className="h-3.5 w-3.5" />
-            Generate More {museTab === "Music Themes" ? "Themes" : "Prompts"}
+            <Download className="h-3.5 w-3.5" />
+            Export
+          </button>
+          <button
+            onClick={() => console.log("share")}
+            className="flex items-center gap-1.5 rounded-lg border border-violet-3/30 px-3 py-1.5 text-sm text-ink/70 transition-colors hover:border-violet-2/50 hover:text-ink"
+          >
+            <Share2 className="h-3.5 w-3.5" />
+            Share
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saveState === "saving"}
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-wait ${
+              saveState === "saved"
+                ? "bg-emerald-600/80 text-white"
+                : saveState === "error"
+                ? "bg-red-600/80 text-white"
+                : "bg-violet-2 text-bg-0 hover:bg-violet-1"
+            }`}
+          >
+            {saveState === "saving"
+              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              : <Save className="h-3.5 w-3.5" />
+            }
+            {saveLabel}
+          </button>
+          <button
+            onClick={() => console.log("more")}
+            aria-label="More options"
+            className="rounded-lg border border-violet-3/30 p-1.5 text-ink/50 transition-colors hover:border-violet-2/50 hover:text-ink"
+          >
+            <MoreHorizontal className="h-4 w-4" />
           </button>
         </div>
-
-        <div className="rounded-2xl border border-violet-3/30 bg-bg-1 p-5">
-          <div className="flex items-center gap-2 text-ink">
-            <ClipboardCheck className="h-4 w-4 text-violet-2" />
-            Approval Workflow
-          </div>
-          <p className="mt-1 text-sm text-ink/50">
-            Submit your designs for writer review
-          </p>
-
-          <div className="mt-4 flex gap-2">
-            <span className="rounded-full bg-amber-500/15 px-3 py-1 text-xs text-amber-300">
-              Pending (
-              {SUBMISSIONS.filter((s) => s.status === "Pending").length})
-            </span>
-            <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs text-emerald-300">
-              Approved (
-              {SUBMISSIONS.filter((s) => s.status === "Approved").length})
-            </span>
-            <span className="rounded-full bg-red-500/15 px-3 py-1 text-xs text-red-300">
-              Rejected (
-              {SUBMISSIONS.filter((s) => s.status === "Rejected").length})
-            </span>
-          </div>
-
-          <div className="mt-4 flex flex-col gap-3">
-            {SUBMISSIONS.slice(0, 2).map((submission) => {
-              const Icon = TYPE_ICONS[submission.type];
-              return (
-                <div key={submission.id} className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-violet-2/10 text-violet-2">
-                    <Icon className="h-4 w-4" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-ink">{submission.title}</p>
-                    <p className="text-sm text-ink/50">
-                      Submitted by {submission.submittedBy} · {submission.date}
-                    </p>
-                  </div>
-                  <span
-                    className={`shrink-0 rounded-full px-2.5 py-1 text-xs ${STATUS_STYLES[submission.status]}`}
-                  >
-                    {submission.status}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-
-          <Link
-            href="/designer/approvals"
-            className="mt-5 flex items-center justify-center gap-1.5 rounded-full border border-violet-2/50 py-2.5 text-sm text-violet-1 transition-colors hover:border-violet-1"
-          >
-            View All Submissions
-            <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
-        </div>
       </div>
+
+      {/* ── Tabs ── */}
+      <div className="mt-5 flex gap-1 border-b border-violet-3/20">
+        {(["Sketchpad", "Approvals"] as WorkspaceTab[]).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`flex items-center gap-2 border-b-2 px-4 pb-2.5 pt-1 text-sm transition-colors ${
+              tab === t
+                ? "border-violet-2 text-violet-1"
+                : "border-transparent text-ink/50 hover:text-ink"
+            }`}
+          >
+            {t === "Sketchpad" ? (
+              <PenTool className="h-3.5 w-3.5" />
+            ) : (
+              <ShieldCheck className="h-3.5 w-3.5" />
+            )}
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Sketchpad tab ── */}
+      {tab === "Sketchpad" && (
+        <div className="mt-5 grid min-h-0 grid-cols-1 gap-5 xl:grid-cols-[1fr_300px]">
+          {/* Left: canvas */}
+          <div className="min-w-0">
+            {loadingDesign ? (
+              <div className="flex h-64 items-center justify-center gap-2 text-ink/40">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                <span className="text-sm">Loading design…</span>
+              </div>
+            ) : (
+              <SketchpadCanvas
+                ref={canvasRef}
+                initialDesign={design}
+              />
+            )}
+          </div>
+
+          {/* Right: stacked panels */}
+          <div className="flex flex-col gap-4">
+            <LayersPanel />
+            <ReferencesPanel
+              references={references}
+              onAdd={handleAddReference}
+              onRemove={handleRemoveReference}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ── Approvals tab ── */}
+      {tab === "Approvals" && (
+        <div className="mt-5">
+          <ApprovalsPanel />
+        </div>
+      )}
     </div>
   );
 }

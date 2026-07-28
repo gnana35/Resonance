@@ -1,85 +1,118 @@
 "use client";
 
-import { useRef, useMemo, useState } from "react";
+/**
+ * Assets page — functional creative library.
+ *
+ * Section 1 "Your Work"  — assets with source === "created"
+ * Section 2 "Uploads"    — assets with source === "uploaded"
+ *
+ * Persistence: Firestore real-time listener (subscribeAssets).
+ * File storage: Firebase Storage via uploadAsset().
+ */
+
 import {
-  Check,
-  ChevronDown,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import Link from "next/link";
+import {
+  File,
+  FileAudio,
   FileText,
-  Folder,
-  FolderPlus,
-  Image as ImageIcon,
-  Layers,
-  Music,
-  Package,
+  FileVideo,
+  MoreHorizontal,
+  PenTool,
   Search,
-  Video,
+  Trash2,
+  Upload,
   X,
 } from "lucide-react";
 import {
-  ASSET_CATEGORIES,
-  ASSET_FOLDERS,
-  ASSET_STATS,
-  COLLECTIONS,
-  RECENT_ASSETS,
-  RECENT_FILES,
-  type AssetCategory,
-  type Collection,
-} from "@/data/designer";
-import { PlaceholderImage } from "@/components/PlaceholderImage";
+  deleteAsset,
+  duplicateAsset,
+  formatAssetDate,
+  mimeLabel,
+  renameAsset,
+  subscribeAssets,
+  uploadAsset,
+  type AssetRecord,
+} from "@/lib/assets";
 
-/* ─── static data ─────────────────────────────────────────────────────── */
+/* ─── helpers ────────────────────────────────────────────────────────────── */
 
-const STAT_ICONS: Record<string, typeof ImageIcon> = {
-  "Total Assets": ImageIcon,
-  Images: ImageIcon,
-  Documents: FileText,
-  Audio: Music,
-  Videos: Video,
-  Other: Package,
-};
-
-const FILTER_OPTIONS: Record<string, string[]> = {
-  "Asset Type":  ["All Types",   "Image", "Document", "Audio", "Video", "Other"],
-  "File Type":   ["All Formats", "PNG", "JPG", "SVG", "MP3", "WAV", "PDF", "MP4"],
-  "Tags":        ["Select tags", "Character", "Environment", "UI", "Concept", "Final"],
-  "Added By":    ["Anyone",      "Me", "Team", "Collaborators"],
-  "Date Added":  ["Anytime",     "Today", "This week", "This month", "This year"],
-};
-
-/* ─── helpers ─────────────────────────────────────────────────────────── */
-
-function FilterDropdown({
-  label,
-  value,
-  onChange,
+/** Pick a file-type icon for non-image assets */
+function FileTypeIcon({
+  mime,
+  className = "h-8 w-8",
 }: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
+  mime: string;
+  className?: string;
+}) {
+  if (mime.startsWith("audio/"))
+    return <FileAudio className={className} />;
+  if (mime.startsWith("video/"))
+    return <FileVideo className={className} />;
+  if (mime === "application/pdf" || mime.startsWith("text/"))
+    return <FileText className={className} />;
+  return <File className={className} />;
+}
+
+/* ─── sub-components ─────────────────────────────────────────────────────── */
+
+/**
+ * Three-dot context menu shared by both card types.
+ * `items` is a flat list of { label, onClick, danger? }.
+ */
+function DotMenu({
+  items,
+}: {
+  items: { label: string; onClick: () => void; danger?: boolean }[];
 }) {
   const [open, setOpen] = useState(false);
-  const options = FILTER_OPTIONS[label] ?? [];
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    function handle(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [open]);
 
   return (
-    <div className="relative">
-      <p className="text-sm text-ink/60">{label}</p>
+    <div ref={ref} className="relative">
       <button
-        onClick={() => setOpen((v) => !v)}
-        className="mt-1.5 flex w-full items-center justify-between rounded-md border border-violet-3/30 px-3 py-2 text-sm text-ink hover:border-violet-2/50"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        aria-label="Options"
+        className="flex h-7 w-7 items-center justify-center rounded-md text-ink/40 transition-colors hover:bg-violet-2/10 hover:text-ink"
       >
-        {value}
-        <ChevronDown className={`h-3.5 w-3.5 text-ink/50 transition-transform ${open ? "rotate-180" : ""}`} />
+        <MoreHorizontal className="h-4 w-4" />
       </button>
+
       {open && (
-        <div className="absolute left-0 top-full z-30 mt-1 w-full rounded-md border border-violet-3/30 bg-bg-1 py-1 shadow-lg">
-          {options.map((opt) => (
+        <div className="absolute right-0 top-full z-30 mt-1 min-w-[160px] rounded-xl border border-violet-3/25 bg-bg-0 py-1 shadow-xl">
+          {items.map((item) => (
             <button
-              key={opt}
-              onClick={() => { onChange(opt); setOpen(false); }}
-              className="flex w-full items-center justify-between px-3 py-2 text-left text-sm text-ink/80 hover:bg-violet-2/10 hover:text-ink"
+              key={item.label}
+              onClick={(e) => {
+                e.stopPropagation();
+                item.onClick();
+                setOpen(false);
+              }}
+              className={`w-full px-4 py-2 text-left text-sm transition-colors hover:bg-violet-2/10 ${
+                item.danger ? "text-red-400" : "text-ink/80 hover:text-ink"
+              }`}
             >
-              {opt}
-              {opt === value && <Check className="h-3.5 w-3.5 text-violet-2" />}
+              {item.label}
             </button>
           ))}
         </div>
@@ -88,459 +121,656 @@ function FilterDropdown({
   );
 }
 
-/* ─── page ────────────────────────────────────────────────────────────── */
+/** Inline rename field — replaces the name text when active */
+function InlineName({
+  name,
+  onCommit,
+}: {
+  name: string;
+  onCommit: (newName: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(name);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-export default function Assets() {
-  const [category, setCategory] = useState<AssetCategory | "All Assets">("All Assets");
-  const [query, setQuery] = useState("");
-
-  // Filter panel values
-  const [filterValues, setFilterValues] = useState<Record<string, string>>({
-    "Asset Type": "All Types",
-    "File Type":  "All Formats",
-    "Tags":       "Select tags",
-    "Added By":   "Anyone",
-    "Date Added": "Anytime",
-  });
-
-  // New folder state
-  const [folders, setFolders] = useState(ASSET_FOLDERS);
-  const [addingFolder, setAddingFolder] = useState(false);
-  const [newFolderName, setNewFolderName] = useState("");
-  const folderInputRef = useRef<HTMLInputElement>(null);
-
-  // New collection state
-  const [collections, setCollections] = useState<Collection[]>(COLLECTIONS);
-  const [addingCollection, setAddingCollection] = useState(false);
-  const [newCollectionName, setNewCollectionName] = useState("");
-  const collectionInputRef = useRef<HTMLInputElement>(null);
-
-  // "View all" toggles — expand/collapse sections
-  const [showAllAssets, setShowAllAssets] = useState(false);
-  const [showAllFolders, setShowAllFolders] = useState(false);
-  const [showAllFiles, setShowAllFiles] = useState(false);
-
-  // Filtered data
-  const filteredAssets = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return RECENT_ASSETS.filter((asset) => {
-      const matchesCategory = category === "All Assets" || asset.category === category;
-      const matchesQuery = q.length === 0 || asset.filename.toLowerCase().includes(q);
-      
-      // Apply filter panel values
-      const assetTypeFilter = filterValues["Asset Type"];
-      const fileTypeFilter = filterValues["File Type"];
-      const tagsFilter = filterValues["Tags"];
-      const addedByFilter = filterValues["Added By"];
-      
-      const matchesAssetType = assetTypeFilter === "All Types" || asset.fileType === assetTypeFilter;
-      const matchesFileType = fileTypeFilter === "All Formats" || asset.fileType === fileTypeFilter;
-      const matchesTags = tagsFilter === "Select tags"; // Placeholder: no tags in data
-      const matchesAddedBy = addedByFilter === "Anyone"; // Placeholder: no addedBy in RECENT_ASSETS
-
-      return matchesCategory && matchesQuery && matchesAssetType && matchesFileType && matchesTags && matchesAddedBy;
-    });
-  }, [category, query, filterValues]);
-
-  const filteredFiles = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return RECENT_FILES.filter((file) => {
-      const matchesCategory = category === "All Assets" || file.category === category;
-      const matchesQuery = q.length === 0 || file.filename.toLowerCase().includes(q);
-      
-      // Apply filter panel values
-      const assetTypeFilter = filterValues["Asset Type"];
-      const fileTypeFilter = filterValues["File Type"];
-      const addedByFilter = filterValues["Added By"];
-      const dateAddedFilter = filterValues["Date Added"];
-      
-      const matchesAssetType = assetTypeFilter === "All Types" || file.type === assetTypeFilter;
-      const matchesFileType = fileTypeFilter === "All Formats" || file.type === fileTypeFilter;
-      const matchesAddedBy = addedByFilter === "Anyone" || file.addedBy === addedByFilter;
-      const matchesDateAdded = dateAddedFilter === "Anytime"; // Placeholder: no structured date in data
-      
-      return matchesCategory && matchesQuery && matchesAssetType && matchesFileType && matchesAddedBy && matchesDateAdded;
-    });
-  }, [category, query, filterValues]);
-
-  // Sliced lists (collapse until "View all" is clicked)
-  const visibleAssets  = showAllAssets  ? filteredAssets  : filteredAssets.slice(0, 6);
-  const visibleFolders = showAllFolders ? folders         : folders.slice(0, 4);
-  const visibleFiles   = showAllFiles   ? filteredFiles   : filteredFiles.slice(0, 5);
-
-  // Refs for scroll-to-section behaviour
-  const assetsRef    = useRef<HTMLDivElement>(null);
-  const foldersRef   = useRef<HTMLDivElement>(null);
-  const filesRef     = useRef<HTMLDivElement>(null);
-
-  function handleViewAllAssets() {
-    setShowAllAssets(true);
-    setTimeout(() => assetsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
-  }
-  function handleViewAllFolders() {
-    setShowAllFolders(true);
-    setTimeout(() => foldersRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
-  }
-  function handleViewAllFiles() {
-    setShowAllFiles(true);
-    setTimeout(() => filesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  function startEdit() {
+    setDraft(name);
+    setEditing(true);
+    setTimeout(() => inputRef.current?.select(), 20);
   }
 
-  function handleNewFolder() {
-    setAddingFolder(true);
-    setTimeout(() => folderInputRef.current?.focus(), 50);
+  function commit() {
+    const trimmed = draft.trim();
+    if (trimmed && trimmed !== name) onCommit(trimmed);
+    setEditing(false);
   }
 
-  function commitNewFolder() {
-    const name = newFolderName.trim();
-    if (name) {
-      setFolders((prev) => [...prev, { id: `folder-${Date.now()}`, name, count: 0 }]);
-    }
-    setNewFolderName("");
-    setAddingFolder(false);
-  }
-
-  function handleNewCollection() {
-    setAddingCollection(true);
-    setTimeout(() => collectionInputRef.current?.focus(), 50);
-  }
-
-  function commitNewCollection() {
-    const name = newCollectionName.trim();
-    if (name) {
-      setCollections((prev) => [...prev, { id: `col-${Date.now()}`, name, count: 0 }]);
-    }
-    setNewCollectionName("");
-    setAddingCollection(false);
-  }
-
-  function clearFilters() {
-    setFilterValues({
-      "Asset Type": "All Types",
-      "File Type":  "All Formats",
-      "Tags":       "Select tags",
-      "Added By":   "Anyone",
-      "Date Added": "Anytime",
-    });
-    setCategory("All Assets");
-    setQuery("");
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit();
+          if (e.key === "Escape") setEditing(false);
+        }}
+        className="w-full rounded border border-violet-2/50 bg-bg-0 px-1 py-0.5 text-sm text-ink outline-none"
+        onClick={(e) => e.stopPropagation()}
+      />
+    );
   }
 
   return (
-    <div className="px-6 py-8 md:px-10">
-      <h1 className="font-display text-2xl text-violet-1">Assets</h1>
-      <p className="mt-1 text-ink/70">
-        Organize, preview, and manage all your creative resources.
-      </p>
+    <span
+      className="block cursor-default truncate text-sm text-ink"
+      onDoubleClick={startEdit}
+      title="Double-click to rename"
+    >
+      {name}
+    </span>
+  );
+}
 
-      {/* Search */}
-      <div className="mt-6 flex items-center gap-3 rounded-lg border border-violet-3/25 bg-bg-1 px-3 py-2.5">
-        <Search className="h-4 w-4 shrink-0 text-ink/40" />
+/**
+ * Confirm-delete dialog — simple overlay, no library dependency.
+ */
+function DeleteConfirm({
+  name,
+  onConfirm,
+  onCancel,
+}: {
+  name: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-bg-0/80 backdrop-blur-sm"
+      onClick={onCancel}
+    >
+      <div
+        className="mx-4 w-full max-w-sm rounded-2xl border border-violet-3/30 bg-bg-1 p-6"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="font-display text-lg text-violet-1">Delete asset?</p>
+            <p className="mt-1 text-sm text-ink/60">
+              <span className="text-ink">&ldquo;{name}&rdquo;</span> will be
+              permanently removed. This cannot be undone.
+            </p>
+          </div>
+          <button
+            onClick={onCancel}
+            className="shrink-0 text-ink/40 hover:text-ink"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="mt-5 flex justify-end gap-3">
+          <button
+            onClick={onCancel}
+            className="rounded-lg border border-violet-3/30 px-4 py-2 text-sm text-ink/70 transition-colors hover:border-violet-2/50 hover:text-ink"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="flex items-center gap-2 rounded-lg bg-red-600/80 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Card for "Your Work" (created) assets */
+function CreatedCard({
+  record,
+  onRename,
+  onDelete,
+  onDuplicate,
+}: {
+  record: AssetRecord;
+  onRename: (id: string, name: string) => void;
+  onDelete: (record: AssetRecord) => void;
+  onDuplicate: (record: AssetRecord) => void;
+}) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const menuItems = [
+    {
+      label: "Rename",
+      onClick: () => {
+        // Trigger the InlineName by simulating double-click is not straightforward,
+        // so we expose a rename prop that the InlineName watches via a key.
+        setRenameActive(true);
+      },
+    },
+    { label: "Duplicate",      onClick: () => onDuplicate(record) },
+    { label: "Download/Export", onClick: () => downloadRecord(record) },
+    { label: "Delete",         onClick: () => setConfirmDelete(true), danger: true },
+  ];
+
+  // Rename trigger from menu
+  const [renameActive, setRenameActive] = useState(false);
+  const nameRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (renameActive) {
+      // Find the input inside InlineName and select it
+      const input = nameRef.current?.querySelector("input");
+      if (input) {
+        input.focus();
+        input.select();
+      }
+      setRenameActive(false);
+    }
+  }, [renameActive]);
+
+  return (
+    <>
+      {confirmDelete && (
+        <DeleteConfirm
+          name={record.name}
+          onConfirm={() => { onDelete(record); setConfirmDelete(false); }}
+          onCancel={() => setConfirmDelete(false)}
+        />
+      )}
+
+      <div className="group rounded-xl border border-violet-3/20 bg-bg-1 transition-colors hover:border-violet-2/30">
+        {/* Thumbnail — navigates to the linked design */}
+        <div
+          className="relative aspect-[4/3] w-full cursor-pointer overflow-hidden rounded-t-xl bg-bg-0"
+          onClick={() => {
+            const href = record.designId
+              ? `/designer?design=${record.designId}`
+              : "/designer";
+            window.location.href = href;
+          }}
+        >
+          {record.previewUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={record.previewUrl}
+              alt={record.name}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center">
+              <PenTool className="h-10 w-10 text-violet-3/40" />
+            </div>
+          )}
+        </div>
+
+        {/* Meta */}
+        <div className="flex items-center gap-2 px-3 py-2.5">
+          <div ref={nameRef} className="min-w-0 flex-1">
+            <InlineName
+              name={record.name}
+              onCommit={(n) => onRename(record.id, n)}
+            />
+            <p className="mt-0.5 truncate text-xs text-ink/40">
+              Last edited · {formatAssetDate(record.updatedAt)}
+            </p>
+          </div>
+          <DotMenu items={menuItems} />
+        </div>
+      </div>
+    </>
+  );
+}
+
+/** Card for "Uploads" assets */
+function UploadedCard({
+  record,
+  onRename,
+  onDelete,
+}: {
+  record: AssetRecord;
+  onRename: (id: string, name: string) => void;
+  onDelete: (record: AssetRecord) => void;
+}) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const isImg = record.mimeType.startsWith("image/");
+
+  const menuItems = [
+    { label: "Rename",   onClick: () => setRenameActive(true) },
+    { label: "Download", onClick: () => downloadRecord(record) },
+    {
+      label: "Add to References",
+      onClick: () => {
+        // Call the handler registered by the designer page, if present
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const fn = (window as any).__addAssetAsReference;
+        if (typeof fn === "function") {
+          fn({ id: record.id, name: record.name, previewUrl: record.previewUrl, storagePath: record.storagePath })
+            .catch(console.error);
+        } else {
+          // Designer page isn't open in this tab — navigate and pass a flag
+          window.location.href = `/designer?addRef=${record.id}`;
+        }
+      },
+    },
+    { label: "Delete", onClick: () => setConfirmDelete(true), danger: true },
+  ];
+
+  const [renameActive, setRenameActive] = useState(false);
+  const nameRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (renameActive) {
+      const input = nameRef.current?.querySelector("input");
+      if (input) { input.focus(); input.select(); }
+      setRenameActive(false);
+    }
+  }, [renameActive]);
+
+  return (
+    <>
+      {confirmDelete && (
+        <DeleteConfirm
+          name={record.name}
+          onConfirm={() => { onDelete(record); setConfirmDelete(false); }}
+          onCancel={() => setConfirmDelete(false)}
+        />
+      )}
+
+      <div className="group rounded-xl border border-violet-3/20 bg-bg-1 transition-colors hover:border-violet-2/30">
+        {/* Thumbnail or file icon */}
+        <div className="relative aspect-[4/3] w-full overflow-hidden rounded-t-xl bg-bg-0">
+          {isImg && record.previewUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={record.previewUrl}
+              alt={record.name}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <div className="flex h-full w-full flex-col items-center justify-center gap-2">
+              <FileTypeIcon
+                mime={record.mimeType}
+                className="h-10 w-10 text-violet-3/50"
+              />
+              <span className="rounded bg-violet-3/20 px-1.5 py-0.5 text-[10px] font-medium uppercase text-ink/50">
+                {mimeLabel(record.mimeType)}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Meta */}
+        <div className="flex items-center gap-2 px-3 py-2.5">
+          <div ref={nameRef} className="min-w-0 flex-1">
+            <InlineName
+              name={record.name}
+              onCommit={(n) => onRename(record.id, n)}
+            />
+            <p className="mt-0.5 truncate text-xs text-ink/40">
+              {mimeLabel(record.mimeType)} · {formatAssetDate(record.createdAt)}
+            </p>
+          </div>
+          <DotMenu items={menuItems} />
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* ─── shared download helper ─────────────────────────────────────────────── */
+
+function downloadRecord(record: AssetRecord) {
+  if (!record.previewUrl && !record.storagePath) return;
+  const url = record.previewUrl ?? "";
+  if (!url) return;
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = record.name;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+/* ─── upload progress tracker ────────────────────────────────────────────── */
+
+interface UploadEntry {
+  id:       string;   // temporary local id
+  filename: string;
+  progress: number;   // 0-100
+  error:    string | null;
+}
+
+/* ─── page ───────────────────────────────────────────────────────────────── */
+
+export default function AssetsPage() {
+  /* ── data ── */
+  const [assets,       setAssets]       = useState<AssetRecord[]>([]);
+  const [loadError,    setLoadError]    = useState<string | null>(null);
+  const [uploads,      setUploads]      = useState<UploadEntry[]>([]);
+  const [isDragging,   setIsDragging]   = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<AssetRecord | null>(null);
+
+  /* ── search ── */
+  const [query, setQuery] = useState("");
+
+  /* ── refs ── */
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  /* ── real-time Firestore subscription ── */
+  useEffect(() => {
+    const unsub = subscribeAssets(
+      (records) => setAssets(records),
+      (err) => setLoadError(err.message),
+    );
+    return unsub;
+  }, []);
+
+  /* ── derived lists ── */
+  const q = query.trim().toLowerCase();
+
+  const createdAssets = assets.filter(
+    (a) =>
+      a.source === "created" &&
+      (q.length === 0 || a.name.toLowerCase().includes(q)),
+  );
+
+  const uploadedAssets = assets.filter(
+    (a) =>
+      a.source === "uploaded" &&
+      (q.length === 0 || a.name.toLowerCase().includes(q)),
+  );
+
+  const noResults =
+    q.length > 0 && createdAssets.length === 0 && uploadedAssets.length === 0;
+
+  /* ── upload handler ── */
+  const handleFiles = useCallback((files: FileList | File[]) => {
+    const list = Array.from(files);
+    for (const file of list) {
+      const tempId = `upload-${Date.now()}-${Math.random()}`;
+
+      setUploads((prev) => [
+        ...prev,
+        { id: tempId, filename: file.name, progress: 0, error: null },
+      ]);
+
+      const { task } = uploadAsset(file);
+
+      task.on(
+        "state_changed",
+        (snap) => {
+          const pct = Math.round(
+            (snap.bytesTransferred / snap.totalBytes) * 100,
+          );
+          setUploads((prev) =>
+            prev.map((u) => (u.id === tempId ? { ...u, progress: pct } : u)),
+          );
+        },
+        (err) => {
+          setUploads((prev) =>
+            prev.map((u) =>
+              u.id === tempId ? { ...u, error: err.message } : u,
+            ),
+          );
+        },
+        () => {
+          // Firestore doc written inside uploadAsset's completion callback;
+          // onSnapshot will push the new record automatically. Remove tracker.
+          setUploads((prev) => prev.filter((u) => u.id !== tempId));
+        },
+      );
+    }
+  }, []);
+
+  /* ── drag and drop ── */
+  function onDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    setIsDragging(true);
+  }
+  function onDragLeave() { setIsDragging(false); }
+  function onDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files.length > 0) handleFiles(e.dataTransfer.files);
+  }
+
+  /* ── asset actions ── */
+  function handleRename(id: string, newName: string) {
+    renameAsset(id, newName).catch(console.error);
+  }
+
+  function handleDelete(record: AssetRecord) {
+    deleteAsset(record).catch(console.error);
+  }
+
+  function handleDuplicate(record: AssetRecord) {
+    duplicateAsset(record).catch(console.error);
+  }
+
+  /* ─── render ──────────────────────────────────────────────────────────── */
+
+  return (
+    <div
+      className="px-6 py-8 md:px-10"
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      {/* Global drag overlay */}
+      {isDragging && (
+        <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center border-4 border-dashed border-violet-2/60 bg-violet-2/5">
+          <div className="rounded-2xl border border-violet-2/40 bg-bg-0/90 px-8 py-6 text-center backdrop-blur-sm">
+            <Upload className="mx-auto h-8 w-8 text-violet-2" />
+            <p className="mt-3 font-display text-lg text-violet-1">Drop to upload</p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Header ── */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="font-display text-3xl tracking-wide text-violet-1">
+            ASSETS
+          </h1>
+          <p className="mt-1 text-sm text-ink/50">
+            Everything you create and upload, in one place.
+          </p>
+        </div>
+
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          className="flex items-center gap-2 rounded-lg bg-violet-2 px-4 py-2 text-sm font-medium text-bg-0 transition-colors hover:bg-violet-1"
+        >
+          <Upload className="h-4 w-4" />
+          Upload
+        </button>
+      </div>
+
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept="image/*,application/pdf,audio/*,video/*,text/*,.svg,.docx,.doc"
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files?.length) {
+            handleFiles(e.target.files);
+            e.target.value = "";
+          }
+        }}
+      />
+
+      {/* ── Search ── */}
+      <div className="mt-5 flex items-center gap-3 rounded-lg border border-violet-3/25 bg-bg-1 px-3 py-2.5">
+        <Search className="h-4 w-4 shrink-0 text-ink/35" />
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search assets..."
-          className="w-full bg-transparent text-sm text-ink placeholder:text-ink/40 focus:outline-none"
+          placeholder="Search your assets..."
+          className="w-full bg-transparent text-sm text-ink placeholder:text-ink/35 focus:outline-none"
         />
         {query && (
-          <button onClick={() => setQuery("")} className="shrink-0 text-ink/40 hover:text-ink">
+          <button
+            onClick={() => setQuery("")}
+            className="shrink-0 text-ink/40 hover:text-ink"
+          >
             <X className="h-4 w-4" />
           </button>
         )}
       </div>
 
-      {/* Category pills */}
-      <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
-        {ASSET_CATEGORIES.map((cat) => (
-          <button
-            key={cat}
-            onClick={() => setCategory(cat)}
-            className={`shrink-0 rounded-full px-4 py-1.5 text-sm transition-colors ${
-              category === cat ? "bg-violet-2 text-bg-0" : "bg-bg-1 text-ink/70 hover:text-ink"
-            }`}
-          >
-            {cat}
-          </button>
-        ))}
-      </div>
+      {/* Firestore error banner */}
+      {loadError && (
+        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          Could not load assets: {loadError}
+        </div>
+      )}
 
-      {/* Stat cards */}
-      <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-        {ASSET_STATS.map((stat) => {
-          const Icon = STAT_ICONS[stat.label] ?? Package;
-          return (
-            <div key={stat.label} className="rounded-xl border border-violet-3/25 bg-bg-1 p-4">
-              <div className="flex items-center justify-between">
-                <p className="text-sm text-ink/60">{stat.label}</p>
-                <Icon className="h-4 w-4 text-violet-2" />
+      {/* No results from search */}
+      {noResults && (
+        <p className="mt-12 text-center text-sm text-ink/40">
+          No assets found.
+        </p>
+      )}
+
+      {!noResults && (
+        <div className="mt-10 flex flex-col gap-12">
+
+          {/* ── Section 1: Your Work ── */}
+          <section>
+            <h2 className="font-display text-sm tracking-widest text-ink/40 uppercase">
+              Your Work
+            </h2>
+
+            {createdAssets.length === 0 ? (
+              /* Empty state */
+              <div className="mt-4 flex flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-violet-3/20 py-14 text-center">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full border border-violet-3/30 bg-bg-1">
+                  <PenTool className="h-5 w-5 text-violet-3/60" />
+                </div>
+                <div>
+                  <p className="text-ink/70">Nothing saved yet</p>
+                  <p className="mt-1 max-w-xs text-sm text-ink/40">
+                    Designs and sketches you save in Resonance will appear here.
+                  </p>
+                </div>
+                <Link
+                  href="/designer"
+                  className="mt-1 flex items-center gap-2 rounded-lg border border-violet-3/30 px-4 py-2 text-sm text-violet-2 transition-colors hover:border-violet-2/60 hover:bg-violet-2/5"
+                >
+                  <PenTool className="h-3.5 w-3.5" />
+                  Open Sketchpad
+                </Link>
               </div>
-              <p className="mt-2 font-display text-xl text-ink">{stat.value.toLocaleString()}</p>
-              <p className="mt-1 text-xs text-emerald-400/80">{stat.delta}</p>
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="mt-8 grid grid-cols-1 gap-6 xl:grid-cols-[1fr_320px]">
-        <div className="flex flex-col gap-8">
-
-          {/* Recently Added */}
-          <div ref={assetsRef}>
-            <div className="flex items-center justify-between">
-              <p className="text-ink">Recently Added</p>
-              {!showAllAssets && filteredAssets.length > 6 && (
-                <button
-                  onClick={handleViewAllAssets}
-                  className="text-sm text-violet-2 hover:text-violet-1"
-                >
-                  View all ({filteredAssets.length})
-                </button>
-              )}
-              {showAllAssets && (
-                <button
-                  onClick={() => setShowAllAssets(false)}
-                  className="text-sm text-violet-2 hover:text-violet-1"
-                >
-                  Show less
-                </button>
-              )}
-            </div>
-            {filteredAssets.length === 0 ? (
-              <p className="mt-6 text-sm text-ink/50">No assets match your search.</p>
             ) : (
-              <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-                {visibleAssets.map((asset) => (
-                  <div key={asset.id}>
-                    <div className="relative">
-                      <PlaceholderImage seed={asset.id} className="h-28 w-full rounded-lg" />
-                      <span className="absolute bottom-2 left-2 rounded bg-bg-0/80 px-1.5 py-0.5 text-[10px] font-medium text-ink/80">
-                        {asset.fileType}
-                      </span>
+              <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                {createdAssets.map((record) => (
+                  <CreatedCard
+                    key={record.id}
+                    record={record}
+                    onRename={handleRename}
+                    onDelete={(r) => setDeleteTarget(r)}
+                    onDuplicate={handleDuplicate}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* ── Section 2: Uploads ── */}
+          <section>
+            <h2 className="font-display text-sm tracking-widest text-ink/40 uppercase">
+              Uploads
+            </h2>
+
+            {/* Active upload progress entries */}
+            {uploads.length > 0 && (
+              <div className="mt-4 flex flex-col gap-2">
+                {uploads.map((u) => (
+                  <div
+                    key={u.id}
+                    className="flex items-center gap-3 rounded-lg border border-violet-3/20 bg-bg-1 px-4 py-3"
+                  >
+                    <Upload className="h-4 w-4 shrink-0 text-violet-2" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm text-ink">{u.filename}</p>
+                      {u.error ? (
+                        <p className="mt-0.5 text-xs text-red-400">{u.error}</p>
+                      ) : (
+                        <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-violet-3/20">
+                          <div
+                            className="h-full rounded-full bg-violet-2 transition-all duration-300"
+                            style={{ width: `${u.progress}%` }}
+                          />
+                        </div>
+                      )}
                     </div>
-                    <p className="mt-2 truncate text-sm text-ink">{asset.filename}</p>
-                    <p className="text-xs text-ink/50">{asset.timeAgo}</p>
+                    <span className="shrink-0 text-xs text-ink/40">
+                      {u.error ? "Failed" : u.progress < 100 ? `${u.progress}%` : "Processing…"}
+                    </span>
                   </div>
                 ))}
               </div>
             )}
-          </div>
 
-          {/* Folders */}
-          <div ref={foldersRef}>
-            <div className="flex items-center justify-between">
-              <p className="text-ink">Folders</p>
-              {!showAllFolders && folders.length > 4 && (
-                <button
-                  onClick={handleViewAllFolders}
-                  className="text-sm text-violet-2 hover:text-violet-1"
-                >
-                  View all ({folders.length})
-                </button>
-              )}
-              {showAllFolders && (
-                <button
-                  onClick={() => setShowAllFolders(false)}
-                  className="text-sm text-violet-2 hover:text-violet-1"
-                >
-                  Show less
-                </button>
-              )}
-            </div>
-            <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-              {visibleFolders.map((folder) => (
-                <button
-                  key={folder.id}
-                  onClick={() => setCategory(folder.name as AssetCategory)}
-                  className={`flex flex-col items-center gap-2 rounded-xl border bg-bg-1 py-5 text-center transition-colors hover:border-violet-2/50 ${
-                    category === folder.name
-                      ? "border-violet-2/60 bg-violet-2/5"
-                      : "border-violet-3/25"
-                  }`}
-                >
-                  <Folder className="h-8 w-8 fill-violet-2/30 text-violet-2" />
-                  <span className="text-sm text-ink">{folder.name}</span>
-                  <span className="text-xs text-ink/50">{folder.count} assets</span>
-                </button>
-              ))}
-
-              {/* New folder — inline input or button */}
-              {addingFolder ? (
-                <div className="flex flex-col items-center gap-2 rounded-xl border border-violet-2/40 bg-bg-1 px-3 py-5">
-                  <FolderPlus className="h-6 w-6 text-violet-2" />
-                  <input
-                    ref={folderInputRef}
-                    value={newFolderName}
-                    onChange={(e) => setNewFolderName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") commitNewFolder();
-                      if (e.key === "Escape") { setAddingFolder(false); setNewFolderName(""); }
-                    }}
-                    placeholder="Folder name"
-                    className="w-full bg-transparent text-center text-sm text-ink placeholder:text-ink/30 focus:outline-none"
-                  />
-                  <div className="flex gap-2 text-xs">
-                    <button onClick={commitNewFolder} className="text-violet-2 hover:text-violet-1">Save</button>
-                    <button onClick={() => { setAddingFolder(false); setNewFolderName(""); }} className="text-ink/40 hover:text-ink">Cancel</button>
-                  </div>
+            {uploadedAssets.length === 0 && uploads.length === 0 ? (
+              /* Empty state with embedded drop zone */
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => { e.stopPropagation(); e.preventDefault(); setIsDragging(true); }}
+                onDrop={(e) => { e.stopPropagation(); onDrop(e); }}
+                className="mt-4 flex cursor-pointer flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-violet-3/20 py-14 text-center transition-colors hover:border-violet-2/40 hover:bg-violet-2/[0.03]"
+              >
+                <div className="flex h-12 w-12 items-center justify-center rounded-full border border-violet-3/30 bg-bg-1">
+                  <Upload className="h-5 w-5 text-violet-3/60" />
                 </div>
-              ) : (
+                <div>
+                  <p className="text-ink/70">Upload your first asset</p>
+                  <p className="mt-1 text-sm text-ink/40">
+                    Drag and drop files here or browse your device.
+                  </p>
+                </div>
                 <button
-                  onClick={handleNewFolder}
-                  className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-violet-3/40 py-5 text-sm text-violet-2 hover:border-violet-2"
+                  onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
+                  className="mt-1 flex items-center gap-2 rounded-lg border border-violet-3/30 px-4 py-2 text-sm text-violet-2 transition-colors hover:border-violet-2/60 hover:bg-violet-2/5"
                 >
-                  <FolderPlus className="h-6 w-6" />
-                  New Folder
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Recent Files */}
-          <div ref={filesRef}>
-            <div className="flex items-center justify-between">
-              <p className="text-ink">Recent Files</p>
-              {!showAllFiles && filteredFiles.length > 5 && (
-                <button
-                  onClick={handleViewAllFiles}
-                  className="text-sm text-violet-2 hover:text-violet-1"
-                >
-                  View all ({filteredFiles.length})
-                </button>
-              )}
-              {showAllFiles && (
-                <button
-                  onClick={() => setShowAllFiles(false)}
-                  className="text-sm text-violet-2 hover:text-violet-1"
-                >
-                  Show less
-                </button>
-              )}
-            </div>
-            <div className="mt-4 overflow-x-auto rounded-xl border border-violet-3/25 bg-bg-1">
-              <table className="w-full text-left text-sm">
-                <thead>
-                  <tr className="border-b border-violet-3/20 text-ink/50">
-                    <th className="px-4 py-3 font-normal">Name</th>
-                    <th className="px-4 py-3 font-normal">Type</th>
-                    <th className="px-4 py-3 font-normal">Size</th>
-                    <th className="px-4 py-3 font-normal">Date Added</th>
-                    <th className="px-4 py-3 font-normal">Added By</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredFiles.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="px-4 py-6 text-center text-ink/50">
-                        No files match your search.
-                      </td>
-                    </tr>
-                  ) : (
-                    visibleFiles.map((file) => (
-                      <tr key={file.id} className="border-b border-violet-3/10 last:border-0">
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-3">
-                            <PlaceholderImage seed={file.id} className="h-9 w-9 shrink-0 rounded-md" />
-                            <div className="min-w-0">
-                              <p className="truncate text-ink">{file.filename}</p>
-                              <p className="truncate text-xs text-ink/40">{file.path}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-ink/70">{file.type}</td>
-                        <td className="px-4 py-3 text-ink/70">{file.size}</td>
-                        <td className="px-4 py-3 text-ink/70">{file.dateAdded}</td>
-                        <td className="px-4 py-3 text-ink/70">{file.addedBy}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        {/* Right sidebar */}
-        <div className="flex flex-col gap-6">
-          {/* Collections */}
-          <div className="rounded-2xl border border-violet-3/25 bg-bg-1 p-5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-ink">
-                <Layers className="h-4 w-4 text-violet-2" />
-                Collections
-              </div>
-              <button
-                onClick={handleNewCollection}
-                className="text-sm text-violet-2 hover:text-violet-1"
-              >
-                + New
-              </button>
-            </div>
-
-            {/* Inline new-collection input */}
-            {addingCollection && (
-              <div className="mt-3 flex items-center gap-2 rounded-lg border border-violet-2/40 bg-bg-0 px-3 py-2">
-                <input
-                  ref={collectionInputRef}
-                  value={newCollectionName}
-                  onChange={(e) => setNewCollectionName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") commitNewCollection();
-                    if (e.key === "Escape") { setAddingCollection(false); setNewCollectionName(""); }
-                  }}
-                  placeholder="Collection name"
-                  className="flex-1 bg-transparent text-sm text-ink placeholder:text-ink/30 focus:outline-none"
-                />
-                <button onClick={commitNewCollection} className="text-xs text-violet-2 hover:text-violet-1">Save</button>
-                <button onClick={() => { setAddingCollection(false); setNewCollectionName(""); }} className="text-ink/40 hover:text-ink">
-                  <X className="h-3.5 w-3.5" />
+                  <Upload className="h-3.5 w-3.5" />
+                  Upload
                 </button>
               </div>
-            )}
-
-            <div className="mt-3 flex flex-col gap-1">
-              {collections.map((collection) => (
-                <button
-                  key={collection.id}
-                  onClick={() => {
-                    // Filter assets by matching collection name to category if possible
-                    const asMatch = ASSET_CATEGORIES.find(
-                      (c) => c.toLowerCase() === collection.name.toLowerCase(),
-                    );
-                    if (asMatch) setCategory(asMatch);
-                  }}
-                  className="flex items-center justify-between rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-violet-2/5"
-                >
-                  <span className="truncate text-ink">{collection.name}</span>
-                  <span className="shrink-0 text-ink/40">{collection.count}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Filters */}
-          <div className="rounded-2xl border border-violet-3/25 bg-bg-1 p-5">
-            <div className="flex items-center justify-between">
-              <p className="text-ink">Filters</p>
-              <button
-                onClick={clearFilters}
-                className="text-sm text-violet-2 hover:text-violet-1"
-              >
-                Clear all
-              </button>
-            </div>
-            <div className="mt-3 flex flex-col gap-3">
-              {Object.keys(FILTER_OPTIONS).map((label) => (
-                <FilterDropdown
-                  key={label}
-                  label={label}
-                  value={filterValues[label]}
-                  onChange={(v) => setFilterValues((prev) => ({ ...prev, [label]: v }))}
-                />
-              ))}
-            </div>
-          </div>
+            ) : uploadedAssets.length > 0 ? (
+              <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                {uploadedAssets.map((record) => (
+                  <UploadedCard
+                    key={record.id}
+                    record={record}
+                    onRename={handleRename}
+                    onDelete={(r) => setDeleteTarget(r)}
+                  />
+                ))}
+              </div>
+            ) : null}
+          </section>
         </div>
-      </div>
+      )}
+
+      {/* ── Delete confirmation dialog ── */}
+      {deleteTarget && (
+        <DeleteConfirm
+          name={deleteTarget.name}
+          onConfirm={() => {
+            handleDelete(deleteTarget);
+            setDeleteTarget(null);
+          }}
+          onCancel={() => setDeleteTarget(null)}
+        />
+      )}
     </div>
   );
 }
