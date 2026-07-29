@@ -3,32 +3,20 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  ActivitySquare,
   Bell,
-  CheckCircle2,
-  CloudUpload,
   FlaskConical,
   Folder,
-  Music,
   Palette,
-  PenTool,
   Settings,
-  Image as ImageIcon,
 } from "lucide-react";
 import { useConsistency } from "@/context/ConsistencyContext";
 
 const NAV_ITEMS = [
-  { href: "/designer",                       label: "Designer's Space", icon: Palette,        exact: true  },
-  { href: "/designer/moodboard",             label: "Moodboard",        icon: ImageIcon                    },
-  { href: "/designer/sketchpad",             label: "Sketchpad",        icon: PenTool                      },
-  { href: "/designer/assets",                label: "Assets",           icon: Folder                       },
-  { href: "/designer/audio-music",           label: "Audio & Music",    icon: Music,          exact: true  },
-  { href: "/designer/audio-music/analysis",  label: "Analysis",         icon: ActivitySquare               },
-  { href: "/designer/approvals",             label: "Approvals",        icon: CheckCircle2                 },
-  { href: "/designer/my-uploads",            label: "My Uploads",       icon: CloudUpload                  },
-  { href: "/designer/research",              label: "Research",         icon: FlaskConical                 },
-  { href: "/designer/notifications",         label: "Notifications",    icon: Bell,           badge: true  },
-  { href: "/designer/settings",              label: "Settings",         icon: Settings                     },
+  { href: "/designer",              label: "Designer's Space", icon: Palette,       exact: true },
+  { href: "/designer/assets",       label: "Assets",           icon: Folder                    },
+  { href: "/designer/research",     label: "Research",         icon: FlaskConical              },
+  { href: "/designer/notifications",label: "Notifications",    icon: Bell,          badge: true },
+  { href: "/designer/settings",     label: "Settings",         icon: Settings                  },
 ];
 
 export function DesignerSidebar() {

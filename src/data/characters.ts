@@ -116,6 +116,11 @@ export type Character = {
 
   relationships?: CharacterRelationship[];
   notes?: string;
+  /** Set after the writer clicks "Send to Designer". */
+  sentToDesigner?: boolean;
+  /** Asset IDs the designer has shared back with the writer. */
+  designerSharedAssetIds?: string[];
+};
 
   /** Which fields the writer has hand-edited — derivation must not touch these */
   lockedFields?: FieldLocks;
