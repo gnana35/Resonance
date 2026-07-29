@@ -3,6 +3,7 @@
 import { Maximize2, Minus, Plus, Redo2, Undo2 } from "lucide-react";
 
 interface CanvasToolbarProps {
+  canvasName?: string;
   canvasWidth: number;
   canvasHeight: number;
   zoom: number;
@@ -16,6 +17,7 @@ interface CanvasToolbarProps {
 }
 
 export function CanvasToolbar({
+  canvasName = "Canvas",
   canvasWidth,
   canvasHeight,
   zoom,
@@ -31,7 +33,7 @@ export function CanvasToolbar({
     <div className="flex items-center justify-between gap-3 rounded-t-xl border border-b-0 border-violet-3/25 bg-bg-1 px-4 py-2">
       {/* Canvas label + dimensions */}
       <div className="flex items-center gap-2.5 text-sm">
-        <span className="text-ink/80">Canvas 1</span>
+        <span className="text-ink/80">{canvasName}</span>
         <span className="text-ink/35">
           {canvasWidth} × {canvasHeight}
         </span>

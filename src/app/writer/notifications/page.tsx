@@ -1,5 +1,5 @@
-import { NotificationsPage } from "@/components/NotificationsPage";
+import { DiscrepancyNotificationsPage } from "@/components/DiscrepancyNotificationsPage";
 
 export default function WriterNotifications() {
-  return <NotificationsPage accentClass="gold" />;
+  return <DiscrepancyNotificationsPage accentClass="gold" role="writer" />;
 }

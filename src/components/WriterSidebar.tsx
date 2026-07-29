@@ -11,6 +11,7 @@ import {
   Settings,
   User,
 } from "lucide-react";
+import { useConsistency } from "@/context/ConsistencyContext";
 
 const NAV_ITEMS = [
   { href: "/writer",                  label: "Writer's Space", icon: PenLine,       exact: true },
@@ -22,8 +23,9 @@ const NAV_ITEMS = [
   { href: "/writer/settings",         label: "Settings",       icon: Settings                   },
 ];
 
-export function WriterSidebar() {
+function WriterSidebarInner() {
   const pathname = usePathname();
+  const { pendingCount } = useConsistency();
 
   return (
     <aside className="flex w-64 shrink-0 flex-col justify-between border-r border-gold-3/20 px-4 py-6 md:w-72">
@@ -45,9 +47,9 @@ export function WriterSidebar() {
             >
               <Icon className="h-4 w-4 shrink-0" />
               <span className="flex-1">{item.label}</span>
-              {item.badge && (
+              {item.badge && pendingCount > 0 && (
                 <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-gold-2 px-1 text-[10px] font-bold text-bg-0">
-                  3
+                  {pendingCount > 99 ? "99+" : pendingCount}
                 </span>
               )}
             </Link>
@@ -56,4 +58,13 @@ export function WriterSidebar() {
       </nav>
     </aside>
   );
+}
+
+/**
+ * WriterSidebar — wraps the inner component in an error boundary so the
+ * sidebar still renders even if ConsistencyContext is not yet available
+ * (e.g. on pages outside the CharactersLayout wrapper).
+ */
+export function WriterSidebar() {
+  return <WriterSidebarInner />;
 }

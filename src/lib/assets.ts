@@ -29,6 +29,7 @@ import {
 } from "firebase/firestore";
 import {
   ref,
+  uploadBytes,
   uploadBytesResumable,
   getDownloadURL,
   deleteObject,
@@ -224,7 +225,7 @@ export async function saveCreatedAsset(
   const uid  = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const path = `created/${uid}/thumbnail.png`;
   const storageRef = ref(storage, path);
-  await uploadBytesResumable(storageRef, blob).then(() => {});
+  await uploadBytes(storageRef, blob);
   const downloadUrl = await getDownloadURL(storageRef);
   const previewUrl  = isImage(mimeType) ? downloadUrl : null;
 
@@ -278,7 +279,7 @@ export async function updateCreatedAsset(
 ): Promise<void> {
   // Overwrite the existing thumbnail in-place
   const storageRef = ref(storage, storagePath);
-  await uploadBytesResumable(storageRef, blob).then(() => {});
+  await uploadBytes(storageRef, blob);
   const previewUrl = await getDownloadURL(storageRef);
 
   await updateDoc(doc(db, ASSETS_COL, assetId), {

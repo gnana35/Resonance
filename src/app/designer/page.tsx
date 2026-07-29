@@ -1,210 +1,392 @@
 "use client";
 
 /**
- * Designer's Space page.
+ * Designer's Space — main workspace.
  *
- * Handles all coordination between the Sketchpad, References panel,
- * and the Assets/Designs persistence layer.
- *
- * URL param ?design=<designId> opens an existing design on load.
+ * Provides DesignerProvider, manages all tool/canvas state, handles:
+ *   - New Design modal with title + dimensions
+ *   - Design picker (list of designs in project)
+ *   - Save → thumbnail written as Asset, design persisted to localStorage
+ *   - Export → flat PNG download
+ *   - Autosave with 3-second debounce
+ *   - Navigate-away warning when there are unsaved changes
+ *   - Blocked-draw toast when drawing on locked/hidden layer
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useSearchParams } from "next/navigation";
 import {
   Download,
   Loader2,
-  MoreHorizontal,
   PenTool,
+  Plus,
   Save,
-  Share2,
   ShieldCheck,
   Sparkles,
+  X,
 } from "lucide-react";
+import {
+  DesignerProvider,
+  useDesigner,
+} from "@/context/DesignerContext";
 import {
   SketchpadCanvas,
   type SketchpadHandle,
+  type CanvasTool,
 } from "@/components/SketchpadCanvas";
+import { CanvasBottomBar } from "@/components/CanvasBottomBar";
 import { LayersPanel }    from "@/components/LayersPanel";
 import { ReferencesPanel } from "@/components/ReferencesPanel";
 import { ApprovalsPanel } from "@/components/ApprovalsPanel";
 import {
-  loadDesign,
-  createDesign,
-  updateDesign,
-  uploadReference,
-  assetToReference,
-  removeReference,
-  type DesignDoc,
-  type ReferenceItem,
-} from "@/lib/designs";
-import {
-  linkDesignToAsset,
   saveCreatedAsset,
   updateCreatedAsset,
+  linkDesignToAsset,
 } from "@/lib/assets";
 
-/* ─── types ──────────────────────────────────────────────────────────────── */
+/* ────────────────────────────────────────────────────────────────────────── */
+/*  New Design modal                                                          */
+/* ────────────────────────────────────────────────────────────────────────── */
+
+const PRESETS = [
+  { label: "Standard",   w: 1200, h: 560 },
+  { label: "Square",     w: 800,  h: 800 },
+  { label: "Portrait",   w: 600,  h: 900 },
+  { label: "Wide",       w: 1600, h: 600 },
+];
+
+function NewDesignModal({
+  onConfirm,
+  onClose,
+}: {
+  onConfirm: (title: string, w: number, h: number) => void;
+  onClose: () => void;
+}) {
+  const [title,    setTitle]   = useState("Untitled Design");
+  const [preset,   setPreset]  = useState(PRESETS[0]);
+  const [customW,  setCustomW] = useState(1200);
+  const [customH,  setCustomH] = useState(560);
+  const [useCustom, setUseCustom] = useState(false);
+
+  const w = useCustom ? customW  : preset.w;
+  const h = useCustom ? customH  : preset.h;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-bg-0/80 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="mx-4 w-full max-w-sm rounded-2xl border border-violet-3/30 bg-bg-1 p-6"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <p className="font-display text-lg text-violet-1">New Design</p>
+          <button onClick={onClose} className="text-ink/40 hover:text-ink">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="mt-4 flex flex-col gap-3">
+          <label className="flex flex-col gap-1 text-sm text-ink/60">
+            Name
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="rounded-lg border border-violet-3/25 bg-bg-0 px-3 py-2 text-sm text-ink placeholder:text-ink/30 focus:border-violet-2/50 focus:outline-none"
+              placeholder="Untitled Design"
+              autoFocus
+            />
+          </label>
+
+          <div className="flex flex-col gap-1">
+            <span className="text-sm text-ink/60">Canvas size</span>
+            <div className="flex flex-wrap gap-1.5">
+              {PRESETS.map((p) => (
+                <button
+                  key={p.label}
+                  onClick={() => { setPreset(p); setUseCustom(false); }}
+                  className={`rounded-md px-3 py-1.5 text-xs transition-colors ${
+                    !useCustom && preset.label === p.label
+                      ? "bg-violet-2 text-bg-0"
+                      : "border border-violet-3/25 text-ink/60 hover:border-violet-2/40 hover:text-ink"
+                  }`}
+                >
+                  {p.label} <span className="opacity-60">({p.w}×{p.h})</span>
+                </button>
+              ))}
+              <button
+                onClick={() => setUseCustom(true)}
+                className={`rounded-md px-3 py-1.5 text-xs transition-colors ${
+                  useCustom
+                    ? "bg-violet-2 text-bg-0"
+                    : "border border-violet-3/25 text-ink/60 hover:border-violet-2/40 hover:text-ink"
+                }`}
+              >
+                Custom
+              </button>
+            </div>
+            {useCustom && (
+              <div className="mt-1.5 flex items-center gap-2 text-sm text-ink/60">
+                <input
+                  type="number" min={100} max={4000}
+                  value={customW}
+                  onChange={(e) => setCustomW(Number(e.target.value))}
+                  className="w-20 rounded border border-violet-3/25 bg-bg-0 px-2 py-1 text-sm text-ink focus:border-violet-2/50 focus:outline-none"
+                />
+                <span>×</span>
+                <input
+                  type="number" min={100} max={4000}
+                  value={customH}
+                  onChange={(e) => setCustomH(Number(e.target.value))}
+                  className="w-20 rounded border border-violet-3/25 bg-bg-0 px-2 py-1 text-sm text-ink focus:border-violet-2/50 focus:outline-none"
+                />
+                <span className="text-xs text-ink/40">px</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-5 flex justify-end gap-3">
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-violet-3/30 px-4 py-2 text-sm text-ink/70 transition-colors hover:border-violet-2/50 hover:text-ink"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onConfirm(title.trim() || "Untitled Design", w, h)}
+            className="rounded-lg bg-violet-2 px-4 py-2 text-sm font-medium text-bg-0 transition-colors hover:bg-violet-1"
+          >
+            Create
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────────────── */
+/*  Blocked-draw toast                                                        */
+/* ────────────────────────────────────────────────────────────────────────── */
+
+function BlockedToast({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onDismiss, 3000);
+    return () => clearTimeout(t);
+  }, [onDismiss]);
+  return (
+    <div className="pointer-events-none fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-xl border border-red-500/30 bg-red-500/10 px-5 py-3 text-sm text-red-400 shadow-lg backdrop-blur-sm">
+      {message}
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────────────── */
+/*  Inner workspace (needs DesignerContext)                                   */
+/* ────────────────────────────────────────────────────────────────────────── */
 
 type WorkspaceTab = "Sketchpad" | "Approvals";
+type SaveState    = "idle" | "saving" | "saved" | "error";
 
-type SaveState = "idle" | "saving" | "saved" | "error";
+function DesignerWorkspace() {
+  const {
+    designs, activeDesign, createDesign, openDesign, deleteDesign,
+    updateDesignMeta, saveDesign,
+    canUndo, canRedo, undo, redo,
+    activeLayers,
+  } = useDesigner();
 
-/* ─── page ───────────────────────────────────────────────────────────────── */
-
-export default function DesignerHome() {
   const searchParams = useSearchParams();
 
-  /* ── tab ── */
-  const [tab, setTab] = useState<WorkspaceTab>("Sketchpad");
+  /* ── tool state ── */
+  const [tool,        setTool]        = useState<CanvasTool>("pencil");
+  const [color,       setColor]       = useState("#a78bfa");
+  const [strokeWidth, setStrokeWidth] = useState(4);
+  const [opacity,     setOpacity]     = useState(100);
 
-  /* ── design state ── */
-  const [design,     setDesign]     = useState<DesignDoc | null>(null);
-  const [references, setReferences] = useState<ReferenceItem[]>([]);
-  const [saveState,  setSaveState]  = useState<SaveState>("idle");
-  const [loadingDesign, setLoadingDesign] = useState(false);
+  /* ── ui state ── */
+  const [tab,          setTab]          = useState<WorkspaceTab>("Sketchpad");
+  const [saveState,    setSaveState]    = useState<SaveState>("idle");
+  const [showNewModal, setShowNewModal] = useState(false);
+  const [blockedMsg,   setBlockedMsg]   = useState<string | null>(null);
+  const [dirty,        setDirty]        = useState(false);
 
-  /* ── canvas handle ── */
   const canvasRef = useRef<SketchpadHandle>(null);
+  const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  /* ── load design from ?design= param ── */
+  /* ── open design from ?design= URL param ── */
   useEffect(() => {
-    const designId = searchParams.get("design");
-    if (!designId) return;
+    const id = searchParams.get("design");
+    if (id && designs.some((d) => d.id === id)) {
+      openDesign(id);
+    } else if (!activeDesign && designs.length > 0) {
+      openDesign(designs[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-    setLoadingDesign(true);
-    loadDesign(designId)
-      .then((doc) => {
-        if (doc) {
-          setDesign(doc);
-          setReferences(doc.references);
-        }
-      })
-      .catch(console.error)
-      .finally(() => setLoadingDesign(false));
-  }, [searchParams]);
+  /* ── dirty tracking ─────────────────────────────────────────────────────
+   * mountedRef:  skip the very first render (context load, not user change)
+   * savingRef:   set to true while a save is in-flight so the layer write
+   *              that context does during saveDesign() doesn't re-dirty.
+   * ──────────────────────────────────────────────────────────────────── */
+  const mountedRef = useRef(false);
+  const savingRef  = useRef(false);
+  useEffect(() => {
+    if (!mountedRef.current) { mountedRef.current = true; return; }
+    if (savingRef.current) return;   // layer change caused by saving itself — ignore
+    setDirty(true);
+  }, [activeLayers]);
 
-  /* ── save handler ── */
+  /* ── navigate-away warning ── */
+  useEffect(() => {
+    function handler(e: BeforeUnloadEvent) {
+      if (!dirty) return;
+      e.preventDefault();
+      e.returnValue = "";
+    }
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [dirty]);
 
-  const handleSave = useCallback(async () => {
-    if (!canvasRef.current) return;
-    setSaveState("saving");
+  /* ── autosave (3 s debounce after last user change) ── */
+  useEffect(() => {
+    if (!dirty || !activeDesign) return;
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+    autosaveTimer.current = setTimeout(() => {
+      handleSave(true);
+    }, 3000);
+    return () => {
+      if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dirty, activeLayers]);
 
+  /* ── save ───────────────────────────────────────────────────────────────
+   * First save:   render thumbnail blob → saveCreatedAsset (Firebase Storage
+   *               + Firestore) → linkDesignToAsset → store assetId +
+   *               assetStoragePath on the Design so we can update next time.
+   * Subsequent:   updateCreatedAsset (overwrites Storage thumbnail, refreshes
+   *               Firestore doc) — never creates a second record.
+   * ──────────────────────────────────────────────────────────────────── */
+  const handleSave = useCallback(async (isAutosave = false) => {
+    if (!activeDesign || !canvasRef.current) return;
+    if (!isAutosave) setSaveState("saving");
+
+    savingRef.current = true;
     try {
-      const { blob, strokes, color, strokeWidth } = await canvasRef.current.getSnapshot();
-      const strokesJson = JSON.stringify(strokes);
-      const designName  = design?.name ?? "Untitled Sketch";
+      // 1. Render the canvas to a PNG blob for the thumbnail
+      const blob = await canvasRef.current.getThumbnailBlob();
 
-      if (design) {
-        /* ── UPDATE existing design ── */
-        await Promise.all([
-          // 1. Overwrite the canvas thumbnail in Storage + update asset metadata
-          updateCreatedAsset(
-            design.assetId,
-            // storagePath was stored when the asset was first created —
-            // we derive it from the asset path convention
-            `created/${design.assetId.slice(-8)}/thumbnail.png`,
-            designName,
-            blob,
-          ).catch(() => {
-            // storagePath may differ; fall through — the design doc update
-            // still succeeds and the preview refreshes on next full save
-          }),
-          // 2. Update the Firestore design document
-          updateDesign(design.id, { strokesJson, references, color, strokeWidth }),
-        ]);
-        // Reflect updatedAt locally so the "last edited" label stays fresh
-        setDesign((prev) =>
-          prev ? { ...prev, strokesJson, references, color, strokeWidth, updatedAt: new Date() } : prev,
+      if (activeDesign.assetId && activeDesign.assetStoragePath) {
+        // ── UPDATE existing asset ──────────────────────────────────────
+        await updateCreatedAsset(
+          activeDesign.assetId,
+          activeDesign.assetStoragePath,
+          activeDesign.title,
+          blob,
         );
+        // Stamp updatedAt on the local design record
+        saveDesign(activeDesign.id);
       } else {
-        /* ── CREATE new design ── */
-        // a. Write asset record + thumbnail to Storage
-        const asset = await saveCreatedAsset(designName, blob, "image/png");
-        // b. Write design document linked to the asset
-        const newDesign = await createDesign({
-          assetId:     asset.id,
-          name:        designName,
-          strokesJson,
-          references,
-          color,
-          strokeWidth,
+        // ── CREATE new asset ───────────────────────────────────────────
+        const assetRecord = await saveCreatedAsset(
+          activeDesign.title,
+          blob,
+          "image/png",
+        );
+        // Write designId back onto the Firestore asset doc
+        await linkDesignToAsset(assetRecord.id, activeDesign.id);
+        // Persist assetId + storagePath on the Design so subsequent saves update
+        updateDesignMeta(activeDesign.id, {
+          assetId:          assetRecord.id,
+          assetStoragePath: assetRecord.storagePath ?? undefined,
         });
-        // Write designId back onto the asset so card navigation works
-        await linkDesignToAsset(asset.id, newDesign.id);
-        setDesign(newDesign);
-        // Update the browser URL so a refresh re-opens this design
-        const url = new URL(window.location.href);
-        url.searchParams.set("design", newDesign.id);
-        window.history.replaceState(null, "", url.toString());
+        saveDesign(activeDesign.id);
       }
 
-      setSaveState("saved");
-      setTimeout(() => setSaveState("idle"), 2500);
+      // Fire consistency event so ConsistencyContext can extract design facts
+      window.dispatchEvent(
+        new CustomEvent("resonance:designSaved", {
+          detail: {
+            designId:  activeDesign.id,
+            projectId: activeDesign.projectId,
+            design:    activeDesign,
+            layers:    activeLayers,
+          },
+        }),
+      );
+
+      setDirty(false);
+      if (!isAutosave) {
+        setSaveState("saved");
+        setTimeout(() => setSaveState("idle"), 2500);
+      }
     } catch (err) {
       console.error("Save failed:", err);
-      setSaveState("error");
-      setTimeout(() => setSaveState("idle"), 3000);
+      if (!isAutosave) {
+        setSaveState("error");
+        setTimeout(() => setSaveState("idle"), 3000);
+      }
+    } finally {
+      savingRef.current = false;
     }
-  }, [canvasRef, design, references]);
+  }, [activeDesign, activeLayers, saveDesign, updateDesignMeta]);
 
-  /* ── reference handlers (passed to ReferencesPanel) ── */
-
-  const handleAddReference = useCallback(async (file: File) => {
-    const item = await uploadReference(file);
-    const next = [...references, item];
-    setReferences(next);
-    // Persist to Firestore if a design is already saved
-    if (design) {
-      await updateDesign(design.id, { references: next });
+  /* ── export (flat PNG download) ── */
+  const handleExport = useCallback(async () => {
+    if (!canvasRef.current || !activeDesign) return;
+    try {
+      const blob = await canvasRef.current.getExportBlob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href     = url;
+      a.download = `${activeDesign.title}.png`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Export failed:", err);
     }
-  }, [references, design]);
+  }, [activeDesign]);
 
-  /**
-   * Called from the Assets page "Add to References" menu item.
-   * Receives an asset record and adds it without uploading a second copy.
-   */
-  const handleAddAssetAsReference = useCallback(async (asset: {
-    id: string; name: string; previewUrl: string | null; storagePath: string | null;
-  }) => {
-    const item = assetToReference(asset);
-    // Skip if already present
-    if (references.some((r) => r.id === item.id)) return;
-    const next = [...references, item];
-    setReferences(next);
-    if (design) {
-      await updateDesign(design.id, { references: next });
-    }
-  }, [references, design]);
-
-  const handleRemoveReference = useCallback(async (id: string) => {
-    const next = await removeReference(references, id);
-    setReferences(next);
-    if (design) {
-      await updateDesign(design.id, { references: next });
-    }
-  }, [references, design]);
-
-  /* expose addAssetAsReference on window for the Assets page to call */
-  useEffect(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (window as any).__addAssetAsReference = handleAddAssetAsReference;
-    return () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      delete (window as any).__addAssetAsReference;
-    };
-  }, [handleAddAssetAsReference]);
-
-  /* ─── render ──────────────────────────────────────────────────────────── */
+  /* ── create new design ── */
+  function handleCreateDesign(title: string, w: number, h: number) {
+    createDesign(title, w, h);
+    setShowNewModal(false);
+    setDirty(false);
+    // Update URL
+    // (the new design becomes active automatically via context)
+  }
 
   const saveLabel =
     saveState === "saving" ? "Saving…"
     : saveState === "saved" ? "Saved ✓"
     : saveState === "error" ? "Error"
+    : dirty ? "Save*"
     : "Save";
+
+  /* ─── render ──────────────────────────────────────────────────────────── */
 
   return (
     <div className="flex min-h-0 flex-col px-6 py-6 md:px-10">
+
+      {showNewModal && (
+        <NewDesignModal
+          onConfirm={handleCreateDesign}
+          onClose={() => setShowNewModal(false)}
+        />
+      )}
+
+      {blockedMsg && (
+        <BlockedToast message={blockedMsg} onDismiss={() => setBlockedMsg(null)} />
+      )}
 
       {/* ── Header ── */}
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -217,37 +399,56 @@ export default function DesignerHome() {
               Designer Space
             </h1>
             <p className="mt-0.5 text-sm text-ink/50">
-              {design
-                ? `Editing: ${design.name} · Last saved ${design.updatedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+              {activeDesign
+                ? `Editing: ${activeDesign.title}${dirty ? " · unsaved" : ""}`
                 : "Sketch. Create. Build your world."}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Design picker */}
+          <select
+            value={activeDesign?.id ?? ""}
+            onChange={(e) => {
+              if (e.target.value) openDesign(e.target.value);
+            }}
+            className="rounded-lg border border-violet-3/30 bg-bg-1 px-3 py-1.5 text-sm text-ink/70 focus:border-violet-2/50 focus:outline-none"
+          >
+            {designs.length === 0 && (
+              <option value="">No designs yet</option>
+            )}
+            {designs.map((d) => (
+              <option key={d.id} value={d.id}>{d.title}</option>
+            ))}
+          </select>
+
           <button
-            onClick={() => console.log("export")}
+            onClick={() => setShowNewModal(true)}
             className="flex items-center gap-1.5 rounded-lg border border-violet-3/30 px-3 py-1.5 text-sm text-ink/70 transition-colors hover:border-violet-2/50 hover:text-ink"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            New
+          </button>
+
+          <button
+            onClick={handleExport}
+            disabled={!activeDesign}
+            className="flex items-center gap-1.5 rounded-lg border border-violet-3/30 px-3 py-1.5 text-sm text-ink/70 transition-colors hover:border-violet-2/50 hover:text-ink disabled:opacity-40"
           >
             <Download className="h-3.5 w-3.5" />
             Export
           </button>
+
           <button
-            onClick={() => console.log("share")}
-            className="flex items-center gap-1.5 rounded-lg border border-violet-3/30 px-3 py-1.5 text-sm text-ink/70 transition-colors hover:border-violet-2/50 hover:text-ink"
-          >
-            <Share2 className="h-3.5 w-3.5" />
-            Share
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saveState === "saving"}
+            onClick={() => handleSave(false)}
+            disabled={saveState === "saving" || !activeDesign}
             className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-wait ${
               saveState === "saved"
                 ? "bg-emerald-600/80 text-white"
                 : saveState === "error"
                 ? "bg-red-600/80 text-white"
-                : "bg-violet-2 text-bg-0 hover:bg-violet-1"
+                : "bg-violet-2 text-bg-0 hover:bg-violet-1 disabled:opacity-40"
             }`}
           >
             {saveState === "saving"
@@ -255,13 +456,6 @@ export default function DesignerHome() {
               : <Save className="h-3.5 w-3.5" />
             }
             {saveLabel}
-          </button>
-          <button
-            onClick={() => console.log("more")}
-            aria-label="More options"
-            className="rounded-lg border border-violet-3/30 p-1.5 text-ink/50 transition-colors hover:border-violet-2/50 hover:text-ink"
-          >
-            <MoreHorizontal className="h-4 w-4" />
           </button>
         </div>
       </div>
@@ -290,32 +484,70 @@ export default function DesignerHome() {
 
       {/* ── Sketchpad tab ── */}
       {tab === "Sketchpad" && (
-        <div className="mt-5 grid min-h-0 grid-cols-1 gap-5 xl:grid-cols-[1fr_300px]">
-          {/* Left: canvas */}
-          <div className="min-w-0">
-            {loadingDesign ? (
-              <div className="flex h-64 items-center justify-center gap-2 text-ink/40">
-                <Loader2 className="h-5 w-5 animate-spin" />
-                <span className="text-sm">Loading design…</span>
+        <>
+          {!activeDesign ? (
+            /* Empty state */
+            <div className="mt-16 flex flex-col items-center justify-center gap-5 text-center">
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-violet-3/30 bg-bg-1">
+                <PenTool className="h-7 w-7 text-violet-3/50" />
               </div>
-            ) : (
-              <SketchpadCanvas
-                ref={canvasRef}
-                initialDesign={design}
-              />
-            )}
-          </div>
+              <div>
+                <p className="text-ink/70">No design open</p>
+                <p className="mt-1 text-sm text-ink/40">Create your first design to start drawing.</p>
+              </div>
+              <button
+                onClick={() => setShowNewModal(true)}
+                className="flex items-center gap-2 rounded-lg bg-violet-2 px-5 py-2.5 text-sm font-medium text-bg-0 transition-colors hover:bg-violet-1"
+              >
+                <Plus className="h-4 w-4" />
+                New Design
+              </button>
+            </div>
+          ) : (
+            <div className="mt-5 grid min-h-0 grid-cols-1 gap-5 xl:grid-cols-[1fr_300px]">
+              {/* Left: canvas + bottom bar */}
+              <div className="flex min-w-0 flex-col gap-0">
+                <SketchpadCanvas
+                  ref={canvasRef}
+                  designId={activeDesign.id}
+                  tool={tool}
+                  color={color}
+                  strokeWidth={strokeWidth}
+                  opacity={opacity}
+                  onToolChange={setTool}
+                  onColorChange={setColor}
+                  onStrokeWidthChange={setStrokeWidth}
+                  onOpacityChange={setOpacity}
+                  onBlockedDraw={(msg) => setBlockedMsg(msg)}
+                />
+                <CanvasBottomBar
+                  color={color}
+                  strokeWidth={strokeWidth}
+                  opacity={opacity}
+                  canUndo={canUndo}
+                  canRedo={canRedo}
+                  onUndo={undo}
+                  onRedo={redo}
+                  onColorChange={setColor}
+                  onStrokeWidthChange={setStrokeWidth}
+                  onOpacityChange={setOpacity}
+                  swatches={activeDesign.swatches}
+                  onSwatchAdd={(c) =>
+                    updateDesignMeta(activeDesign.id, {
+                      swatches: [...activeDesign.swatches, c],
+                    })
+                  }
+                />
+              </div>
 
-          {/* Right: stacked panels */}
-          <div className="flex flex-col gap-4">
-            <LayersPanel />
-            <ReferencesPanel
-              references={references}
-              onAdd={handleAddReference}
-              onRemove={handleRemoveReference}
-            />
-          </div>
-        </div>
+              {/* Right: stacked panels */}
+              <div className="flex flex-col gap-4">
+                <LayersPanel />
+                <ReferencesPanel />
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* ── Approvals tab ── */}
@@ -325,5 +557,31 @@ export default function DesignerHome() {
         </div>
       )}
     </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────────────── */
+/*  Wrapper — provides DesignerProvider with active project id               */
+/* ────────────────────────────────────────────────────────────────────────── */
+
+function DesignerPageInner() {
+  const projectId =
+    (typeof window !== "undefined"
+      ? (localStorage.getItem("resonance:activeProject") ?? "default")
+      : "default");
+  return (
+    <DesignerProvider projectId={projectId}>
+      <Suspense>
+        <DesignerWorkspace />
+      </Suspense>
+    </DesignerProvider>
+  );
+}
+
+export default function DesignerPage() {
+  return (
+    <Suspense>
+      <DesignerPageInner />
+    </Suspense>
   );
 }

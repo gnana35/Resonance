@@ -1,5 +1,5 @@
-import { NotificationsPage } from "@/components/NotificationsPage";
+import { DiscrepancyNotificationsPage } from "@/components/DiscrepancyNotificationsPage";
 
 export default function DesignerNotifications() {
-  return <NotificationsPage accentClass="violet" />;
+  return <DiscrepancyNotificationsPage accentClass="violet" role="designer" />;
 }

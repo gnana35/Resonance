@@ -15,6 +15,7 @@ import {
   Settings,
   Image as ImageIcon,
 } from "lucide-react";
+import { useConsistency } from "@/context/ConsistencyContext";
 
 const NAV_ITEMS = [
   { href: "/designer",                       label: "Designer's Space", icon: Palette,        exact: true  },
@@ -32,9 +33,10 @@ const NAV_ITEMS = [
 
 export function DesignerSidebar() {
   const pathname = usePathname();
+  const { pendingCount } = useConsistency();
 
   return (
-    <aside className="flex w-64 shrink-0 flex-col justify-between border-r border-violet-3/30 px-4 py-6 md:w-72">
+    <aside className="flex w-64 shrink-0 flex-col border-r border-violet-3/30 px-4 py-6 md:w-72">
       <nav className="flex flex-col gap-1">
         {NAV_ITEMS.map((item) => {
           const isActive = item.exact
@@ -53,46 +55,15 @@ export function DesignerSidebar() {
             >
               <Icon className="h-4 w-4 shrink-0" />
               <span className="flex-1">{item.label}</span>
-              {item.badge && (
+              {item.badge && pendingCount > 0 && (
                 <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-violet-2 px-1 text-[10px] font-bold text-bg-0">
-                  3
+                  {pendingCount > 99 ? "99+" : pendingCount}
                 </span>
               )}
             </Link>
           );
         })}
       </nav>
-
-      <div className="mt-8 flex flex-col gap-4">
-        <div className="rounded-xl border border-violet-3/30 bg-bg-1 p-4">
-          <p className="text-sm text-ink/70">Active Project</p>
-          <button
-            onClick={() => console.log("switch project")}
-            className="mt-2 flex w-full items-center gap-3"
-          >
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-violet-2/15 font-display text-sm text-violet-1">
-              E
-            </div>
-            <span className="text-ink">Echoes of Aether</span>
-          </button>
-        </div>
-
-        <div className="rounded-xl border border-violet-3/30 bg-bg-1 p-4">
-          <p className="text-sm text-ink/70">Designer</p>
-          <button
-            onClick={() => console.log("designer profile")}
-            className="mt-2 flex w-full items-center gap-3"
-          >
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-violet-2/15 font-display text-sm text-violet-1">
-              L
-            </div>
-            <div className="text-left">
-              <p className="text-ink">Luna Designer</p>
-              <p className="text-xs text-ink/50">Pro Plan</p>
-            </div>
-          </button>
-        </div>
-      </div>
     </aside>
   );
 }

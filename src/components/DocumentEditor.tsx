@@ -47,8 +47,8 @@ export interface DocumentEditorHandle {
 
 export const DocumentEditor = forwardRef<
   DocumentEditorHandle,
-  { initialHtml: string; contextLabel?: string; readOnly?: boolean }
->(function DocumentEditor({ initialHtml, contextLabel, readOnly = false }, ref) {
+  { initialHtml: string; contextLabel?: string; readOnly?: boolean; onInput?: () => void }
+>(function DocumentEditor({ initialHtml, contextLabel, readOnly = false, onInput: onInputProp }, ref) {
   const editorRef      = useRef<HTMLDivElement>(null);
   const [blockLabel, setBlockLabel]       = useState("Paragraph");
   const [blockMenuOpen, setBlockMenuOpen] = useState(false);
@@ -73,6 +73,7 @@ export const DocumentEditor = forwardRef<
     const text = editorRef.current?.innerText ?? "";
     setWordCount(countWords(text));
     setCharCount(text.trim().length);
+    onInputProp?.();
   }
 
   function exec(command: string, value?: string) {
@@ -229,8 +230,10 @@ export const DocumentEditor = forwardRef<
         contentEditable={!readOnly}
         suppressContentEditableWarning
         onInput={updateCounts}
+        data-placeholder="Start writing your story..."
         className={[
           "min-h-[420px] px-6 py-6 text-ink/90 leading-[1.5] focus:outline-none",
+          "empty:before:content-[attr(data-placeholder)] empty:before:text-ink/30 empty:before:pointer-events-none",
           readOnly ? "cursor-default select-text" : "",
           "[&_h1]:font-display [&_h1]:text-3xl [&_h1]:text-gold-1 [&_h1]:mb-3",
           "[&_h2]:font-display [&_h2]:text-2xl [&_h2]:text-gold-1 [&_h2]:mb-2",
