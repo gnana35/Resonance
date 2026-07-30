@@ -490,6 +490,13 @@ export type ProjectContext = {
   worldEntities: { label: string; kind: string; description?: string }[];
   openChapter?: { id: string; title: string; contentExcerpt: string };
   chapters: { id: string; title: string }[];
+  /** Asset metadata attached by the designer for image-analysis modes */
+  attachedAsset?: {
+    name:        string;
+    characterId: string | null;
+    sceneId:     string | null;
+    description: string | null;
+  };
 };
 
 /**
@@ -582,5 +589,6 @@ export function assembleProjectContext(
     worldEntities: exclusions.has("world") ? [] : worldEntities,
     openChapter: exclusions.has("chapter") ? undefined : openChapter,
     chapters: projectChapters.map((c) => ({ id: c.id, title: c.title })),
+    // attachedAsset is injected by the caller at send-time, not assembled here
   };
 }

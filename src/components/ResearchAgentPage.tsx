@@ -15,6 +15,7 @@ import {
   BookOpen,
   Bot,
   Check,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
   Clock,
@@ -26,6 +27,7 @@ import {
   History,
   ImageIcon,
   Info,
+  Layers,
   Loader2,
   MessageSquarePlus,
   MoreHorizontal,
@@ -36,10 +38,12 @@ import {
   Send,
   Settings2,
   Shield,
+  SlidersHorizontal,
   Trash2,
   TrendingUp,
   X,
 } from "lucide-react";
+import { subscribeAssets, type AssetRecord } from "@/lib/assets";
 import { motion, AnimatePresence, type Variants, type Transition } from "framer-motion";
 import {
   useResearch,
@@ -102,6 +106,39 @@ const RESEARCH_TOOLS: { icon: typeof Clock; label: string; buildPrompt: (ctx: Pr
     label: "Visual/design reference",
     buildPrompt: (ctx) =>
       `I need visual references and construction details for depicting${ctx.setting ? ` elements from ${ctx.setting}` : " elements from my story"}.${ctx.openChapter ? ` I'm currently working on "${ctx.openChapter.title}".` : ""} Give me sources with proportion, colour, material, and scale detail.`,
+  },
+];
+
+// Designer-only tools — shown only when accentClass === "violet"
+const DESIGNER_TOOLS: { icon: typeof Clock; label: string; tag: "accuracy" | "inspiration"; buildPrompt: (ctx: ProjectContext, asset: AssetRecord | null) => string }[] = [
+  {
+    icon: CheckCircle2,
+    label: "Check accuracy vs description",
+    tag: "accuracy",
+    buildPrompt: (ctx, asset) => {
+      const subjectHint = asset?.characterId
+        ? `for "${asset.characterId}"${asset.sceneId ? ` (scene: ${asset.sceneId})` : ""}`
+        : ctx.characters.length > 0
+        ? `for character "${ctx.characters[0].name}"`
+        : "for this design";
+      return `Can you compare this image with the author's description and determine whether it is historically accurate and matches the author's vision? Check ${subjectHint}${ctx.setting ? ` in the setting of ${ctx.setting}` : ""}. Verify clothing, architecture, culture, time period, and objects. Explain any mismatches and suggest improvements.`;
+    },
+  },
+  {
+    icon: SlidersHorizontal,
+    label: "Inspiration alignment",
+    tag: "inspiration",
+    buildPrompt: (ctx, asset) => {
+      const writerDesc = asset?.description
+        ? `The designer's note: "${asset.description}".`
+        : asset?.characterId
+        ? `Asset is for character/entity: "${asset.characterId}".`
+        : "";
+      const charDesc = ctx.characters.slice(0, 3)
+        .map((c) => `${c.name}: ${c.bio?.slice(0, 80) ?? c.role}`)
+        .join("; ");
+      return `I am uploading an inspiration image for my design work. ${writerDesc} Use the uploaded image as inspiration and compare it with the writer's description. ${charDesc ? `Story characters: ${charDesc}.` : ""}${ctx.setting ? ` Setting: ${ctx.setting}.` : ""} Recommend ways to better align the artwork with the author's vision.`;
+    },
   },
 ];
 
@@ -1110,6 +1147,11 @@ export function ResearchAgentPage({
     setContextExclusion,
   } = useResearch();
 
+  const isGold = accentClass === "gold";
+  const accentText = isGold ? "text-gold-1" : "text-violet-1";
+  const accentBtn = isGold ? "bg-gold-2 hover:bg-gold-1 text-bg-0" : "bg-violet-2 hover:opacity-90 text-bg-0";
+  const accentBorder = isGold ? "border-gold-3/25" : "border-violet-3/25";
+
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showSourcesPanel, setShowSourcesPanel] = useState(false);
   const [input, setInput] = useState("");
@@ -1119,10 +1161,24 @@ export function ResearchAgentPage({
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const isGold = accentClass === "gold";
-  const accentText = isGold ? "text-gold-1" : "text-violet-1";
-  const accentBtn = isGold ? "bg-gold-2 hover:bg-gold-1 text-bg-0" : "bg-violet-2 hover:opacity-90 text-bg-0";
-  const accentBorder = isGold ? "border-gold-3/25" : "border-violet-3/25";
+  // ── Assets library (designer-mode only) ────────────────────────────────────
+  const [savedAssets, setSavedAssets]     = useState<AssetRecord[]>([]);
+  const [attachedAsset, setAttachedAsset] = useState<AssetRecord | null>(null);
+  const [showAssetPicker, setShowAssetPicker] = useState(false);
+
+  useEffect(() => {
+    if (isGold) return; // writer mode — no asset picker
+    const unsub = subscribeAssets((records) => {
+      setSavedAssets(records.filter((r) => r.source === "created" && !!r.previewUrl));
+    });
+    return unsub;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Sync attached asset's thumbnail into the image attachment slot
+  useEffect(() => {
+    if (attachedAsset?.previewUrl) setAttachedImage(attachedAsset.previewUrl);
+  }, [attachedAsset]);
 
   // Assemble context
   const ctx = assembleProjectContext(projectId, contextExclusions);
@@ -1163,10 +1219,21 @@ export function ResearchAgentPage({
     const agentMsgId = appendAgentMessage(chatId);
     setInput("");
     setAttachedImage(null);
+    // Capture asset ref before clearing it
+    const assetRef = attachedAsset;
+    setAttachedAsset(null);
     setIsRunning(true);
 
-    // Fresh context snapshot
+    // Fresh context snapshot, injecting asset metadata if present
     const snapshot = assembleProjectContext(projectId, contextExclusions);
+    if (assetRef) {
+      snapshot.attachedAsset = {
+        name:        assetRef.name,
+        characterId: assetRef.characterId,
+        sceneId:     assetRef.sceneId,
+        description: assetRef.description,
+      };
+    }
 
     try {
       const res = await fetch("/api/research/stream", {
@@ -1263,6 +1330,8 @@ export function ResearchAgentPage({
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    // Clear any asset attachment — file upload takes priority
+    setAttachedAsset(null);
     const reader = new FileReader();
     reader.onload = (ev) => {
       const result = ev.target?.result;
@@ -1381,6 +1450,45 @@ export function ResearchAgentPage({
                     })}
                   </div>
                 </div>
+
+                {/* Designer Tools — only shown in designer (violet) mode */}
+                {!isGold && (
+                  <div className="px-3 pt-5">
+                    <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-widest text-ink/35">
+                      Designer Tools
+                    </p>
+                    <div className="flex flex-col gap-0.5">
+                      {DESIGNER_TOOLS.map((tool) => {
+                        const Icon = tool.icon;
+                        return (
+                          <button
+                            key={tool.label}
+                            onClick={() => {
+                              if (!activeChatId) {
+                                const id = startNewChat();
+                                setActiveChatId(id);
+                              }
+                              const prompt = tool.buildPrompt(ctx, attachedAsset);
+                              setInput(prompt);
+                              setTimeout(() => {
+                                (document.querySelector("#research-textarea") as HTMLTextAreaElement | null)?.focus();
+                              }, 50);
+                            }}
+                            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-ink/70 transition-colors hover:bg-ink/6 hover:text-ink"
+                          >
+                            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-violet-2/12">
+                              <Icon className="h-3 w-3 text-violet-2" />
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                              <span className="text-xs text-violet-2">✦</span>
+                              {tool.label}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 {/* Recent Chats */}
                 <div className="px-3 pt-5">
@@ -1525,19 +1633,26 @@ export function ResearchAgentPage({
           {/* Input bar */}
           {activeChatId !== null && (
             <div className={`shrink-0 border-t ${accentBorder} px-4 py-3`}>
-              {/* Attached image */}
+              {/* Attached image preview */}
               {attachedImage && (
-                <div className="mx-auto mb-2 flex max-w-3xl gap-2">
+                <div className="mx-auto mb-2 flex max-w-3xl items-center gap-2">
                   <div className="relative inline-block">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={attachedImage} alt="Attached" className="h-20 rounded-lg border border-ink/15 object-contain" />
                     <button
-                      onClick={() => setAttachedImage(null)}
+                      onClick={() => { setAttachedImage(null); setAttachedAsset(null); }}
                       className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-bg-1 border border-ink/20 text-ink/50 hover:text-ink"
                     >
                       <X className="h-2.5 w-2.5" />
                     </button>
                   </div>
+                  {/* Asset chip — shows when image came from the asset library */}
+                  {attachedAsset && (
+                    <span className="flex items-center gap-1.5 rounded-full border border-violet-3/30 bg-violet-2/10 px-2.5 py-1 text-xs text-violet-1">
+                      <Layers className="h-3 w-3" />
+                      {attachedAsset.name}
+                    </span>
+                  )}
                 </div>
               )}
 
@@ -1572,11 +1687,69 @@ export function ResearchAgentPage({
                   onChange={handleFileSelect}
                   className="hidden"
                 />
+
+                {/* Asset picker button — designer mode only */}
+                {!isGold && savedAssets.length > 0 && (
+                  <div className="relative shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setShowAssetPicker((v) => !v)}
+                      className={`rounded-md p-1.5 transition-colors ${attachedAsset ? "text-violet-2" : "text-ink/35 hover:text-ink"}`}
+                      title="Attach from Assets library"
+                    >
+                      <ImageIcon className="h-4 w-4" />
+                    </button>
+
+                    {/* Asset picker dropdown */}
+                    {showAssetPicker && (
+                      <div className="absolute bottom-full right-0 mb-2 w-64 rounded-xl border border-violet-3/25 bg-bg-0 shadow-lg">
+                        <div className="flex items-center justify-between border-b border-violet-3/20 px-3 py-2">
+                          <span className="text-xs font-medium text-ink/60">Your saved assets</span>
+                          <button onClick={() => setShowAssetPicker(false)} className="text-ink/40 hover:text-ink">
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                        <div className="max-h-56 overflow-y-auto py-1">
+                          {savedAssets.map((asset) => (
+                            <button
+                              key={asset.id}
+                              type="button"
+                              onClick={() => {
+                                setAttachedAsset(asset);
+                                setShowAssetPicker(false);
+                              }}
+                              className={`flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-ink/6 ${attachedAsset?.id === asset.id ? "bg-violet-2/10" : ""}`}
+                            >
+                              {asset.previewUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={asset.previewUrl} alt={asset.name} className="h-9 w-9 shrink-0 rounded object-cover" />
+                              ) : (
+                                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-violet-2/10">
+                                  <ImageIcon className="h-4 w-4 text-violet-2/50" />
+                                </div>
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-xs font-medium text-ink">{asset.name}</p>
+                                {asset.description && (
+                                  <p className="truncate text-[10px] text-ink/40">{asset.description}</p>
+                                )}
+                              </div>
+                              {attachedAsset?.id === asset.id && (
+                                <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-violet-2" />
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   className="shrink-0 rounded-md p-1.5 text-ink/35 hover:text-ink transition-colors"
-                  title="Attach image or canvas"
+                  title="Attach image from device"
                 >
                   <Paperclip className="h-4 w-4" />
                 </button>
@@ -1591,7 +1764,7 @@ export function ResearchAgentPage({
                 </button>
               </form>
               <p className="mx-auto mt-1.5 max-w-3xl text-center text-[10px] text-ink/25">
-                Press Enter to send · Shift+Enter for new line · 📎 for image / canvas
+                Press Enter to send · Shift+Enter for new line · 📎 device image · 🖼 from assets
               </p>
             </div>
           )}

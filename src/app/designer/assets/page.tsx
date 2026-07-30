@@ -6,10 +6,16 @@
  * Section 1 "Your Work"  — assets with source === "created"
  * Section 2 "Uploads"    — assets with source === "uploaded"
  *
- * No 3-dot menus. Actions are visible icon buttons: Rename, Download, Delete.
- * Destructive actions require confirmation.
- * Deleting an asset that is referenced warns which designs use it.
- * Clicking a "Your Work" tile opens the linked design in the Sketchpad.
+ * Created assets show:
+ *   - Thumbnail preview
+ *   - Character / scene metadata (if set)
+ *   - Validation status badge (Pending / Approved / Needs Revision)
+ *   - Share status: shared assets get a ✓ checkmark; unshared get "Share with Writer"
+ *   - Rename, Download, Delete actions
+ *
+ * Sharing an asset fires shareAssetWithWriter(), which:
+ *   1. Sets shareStatus = "shared" and validationStatus = "pending" on the asset
+ *   2. Writes a designShareNotifs record so the writer sees it in Notifications
  *
  * Persistence: Firestore real-time listener (subscribeAssets).
  * File storage: Firebase Storage via uploadAsset().
@@ -24,6 +30,8 @@ import {
 } from "react";
 import Link from "next/link";
 import {
+  CheckCircle2,
+  Clock,
   Download,
   File,
   FileAudio,
@@ -31,18 +39,22 @@ import {
   FileVideo,
   PenTool,
   Search,
+  Send,
   Trash2,
   Upload,
   X,
+  XCircle,
 } from "lucide-react";
 import {
   deleteAsset,
   formatAssetDate,
   mimeLabel,
   renameAsset,
+  shareAssetWithWriter,
   subscribeAssets,
   uploadAsset,
   type AssetRecord,
+  type AssetValidationStatus,
 } from "@/lib/assets";
 import {
   DesignerProvider,
@@ -56,6 +68,34 @@ function FileTypeIcon({ mime, className = "h-8 w-8" }: { mime: string; className
   if (mime.startsWith("video/")) return <FileVideo className={className} />;
   if (mime === "application/pdf" || mime.startsWith("text/")) return <FileText className={className} />;
   return <File className={className} />;
+}
+
+/* ─── validation badge ──────────────────────────────────────────────────── */
+
+function ValidationBadge({ status }: { status: AssetValidationStatus }) {
+  if (status === "approved") {
+    return (
+      <span className="flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+        <CheckCircle2 className="h-3 w-3" />
+        Approved
+      </span>
+    );
+  }
+  if (status === "needs_revision") {
+    return (
+      <span className="flex items-center gap-1 rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-medium text-red-400">
+        <XCircle className="h-3 w-3" />
+        Needs Revision
+      </span>
+    );
+  }
+  // pending
+  return (
+    <span className="flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-400">
+      <Clock className="h-3 w-3" />
+      Pending
+    </span>
+  );
 }
 
 /* ─── inline rename ─────────────────────────────────────────────────────── */
@@ -164,7 +204,7 @@ function DeleteConfirm({
   );
 }
 
-/* ─── card action bar (visible icons, no dropdown) ──────────────────────── */
+/* ─── card action bar ────────────────────────────────────────────────────── */
 
 function CardActions({
   onRename,
@@ -183,7 +223,6 @@ function CardActions({
         title="Rename"
         className="rounded p-1 text-ink/40 transition-colors hover:bg-violet-2/10 hover:text-ink"
       >
-        {/* pencil icon inline */}
         <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
           <path d="M11.5 2.5l2 2-8 8H3.5v-2l8-8z" strokeLinejoin="round"/>
         </svg>
@@ -225,16 +264,19 @@ function CreatedCard({
   inUseBy,
   onRename,
   onDelete,
+  onShare,
 }: {
   record: AssetRecord;
   inUseBy: string[];
   onRename: (id: string, name: string) => void;
   onDelete: (record: AssetRecord, inUseBy: string[]) => void;
+  onShare:  (record: AssetRecord) => void;
 }) {
   const [renaming, setRenaming] = useState(false);
+  const isShared = record.shareStatus === "shared";
 
   return (
-    <div className="group rounded-xl border border-violet-3/20 bg-bg-1 transition-colors hover:border-violet-2/30">
+    <div className="group flex flex-col rounded-xl border border-violet-3/20 bg-bg-1 transition-colors hover:border-violet-2/30">
       {/* Thumbnail */}
       <div
         className="relative aspect-[4/3] w-full cursor-pointer overflow-hidden rounded-t-xl bg-bg-0"
@@ -251,28 +293,79 @@ function CreatedCard({
             <PenTool className="h-10 w-10 text-violet-3/40" />
           </div>
         )}
+
+        {/* Shared checkmark overlay */}
+        {isShared && (
+          <div className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 shadow">
+            <CheckCircle2 className="h-4 w-4 text-white" />
+          </div>
+        )}
       </div>
 
       {/* Meta + actions */}
-      <div className="flex items-center gap-1.5 px-3 py-2.5">
-        <div className="min-w-0 flex-1">
-          <InlineName
-            name={record.name}
-            editing={renaming}
-            onCommit={(n) => { onRename(record.id, n); setRenaming(false); }}
-            onCancel={() => setRenaming(false)}
-          />
-          <p className="mt-0.5 truncate text-xs text-ink/40">
-            Last edited · {formatAssetDate(record.updatedAt)}
+      <div className="flex flex-col gap-1.5 px-3 py-2.5">
+        <div className="flex items-start gap-1.5">
+          <div className="min-w-0 flex-1">
+            <InlineName
+              name={record.name}
+              editing={renaming}
+              onCommit={(n) => { onRename(record.id, n); setRenaming(false); }}
+              onCancel={() => setRenaming(false)}
+            />
+          </div>
+          <div className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100">
+            <CardActions
+              onRename={() => setRenaming(true)}
+              onDownload={() => downloadRecord(record)}
+              onDelete={() => onDelete(record, inUseBy)}
+            />
+          </div>
+        </div>
+
+        {/* Character / scene metadata */}
+        {(record.characterId || record.sceneId) && (
+          <p className="truncate text-xs text-ink/40">
+            {[record.characterId, record.sceneId].filter(Boolean).join(" · ")}
           </p>
+        )}
+
+        {/* Description */}
+        {record.description && (
+          <p className="line-clamp-2 text-xs text-ink/50" title={record.description}>
+            {record.description}
+          </p>
+        )}
+
+        {/* Footer row: date + validation badge */}
+        <div className="flex flex-wrap items-center justify-between gap-1.5 pt-0.5">
+          <p className="text-xs text-ink/35">
+            {formatAssetDate(record.updatedAt)}
+          </p>
+          <ValidationBadge status={record.validationStatus} />
         </div>
-        <div className="opacity-0 transition-opacity group-hover:opacity-100">
-          <CardActions
-            onRename={() => setRenaming(true)}
-            onDownload={() => downloadRecord(record)}
-            onDelete={() => onDelete(record, inUseBy)}
-          />
-        </div>
+
+        {/* Share with Writer button */}
+        <button
+          onClick={(e) => { e.stopPropagation(); onShare(record); }}
+          disabled={isShared}
+          className={`mt-1 flex w-full items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+            isShared
+              ? "cursor-default border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
+              : "border-violet-3/30 text-ink/60 hover:border-violet-2/50 hover:bg-violet-2/5 hover:text-violet-2"
+          }`}
+        >
+          {isShared ? (
+            <>
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              Shared with Writer
+            </>
+          ) : (
+            <>
+              <Send className="h-3.5 w-3.5" />
+              Share with Writer
+            </>
+          )}
+        </button>
       </div>
     </div>
   );
@@ -345,6 +438,21 @@ interface UploadEntry {
   error: string | null;
 }
 
+/* ─── share toast ────────────────────────────────────────────────────────── */
+
+function ShareToast({ name, onDismiss }: { name: string; onDismiss: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onDismiss, 3000);
+    return () => clearTimeout(t);
+  }, [onDismiss]);
+  return (
+    <div className="pointer-events-none fixed bottom-8 left-1/2 z-50 -translate-x-1/2 flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-5 py-3 text-sm text-emerald-400 shadow-lg backdrop-blur-sm">
+      <CheckCircle2 className="h-4 w-4 shrink-0" />
+      <span>&ldquo;{name}&rdquo; shared — writer notified.</span>
+    </div>
+  );
+}
+
 /* ─── page body ──────────────────────────────────────────────────────────── */
 
 function AssetsPageBody() {
@@ -357,6 +465,8 @@ function AssetsPageBody() {
   const [isDragging,   setIsDragging]   = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ record: AssetRecord; inUseBy: string[] } | null>(null);
   const [query,        setQuery]        = useState("");
+  const [shareToast,   setShareToast]   = useState<string | null>(null);
+  const [sharing,      setSharing]      = useState<string | null>(null); // assetId being shared
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   /* ── real-time Firestore subscription ── */
@@ -389,18 +499,21 @@ function AssetsPageBody() {
     for (const file of Array.from(files)) {
       const tempId = `upload-${Date.now()}-${Math.random()}`;
       setUploads((prev) => [...prev, { id: tempId, filename: file.name, progress: 0, error: null }]);
-      const { task } = uploadAsset(file);
+      const { task, promise } = uploadAsset(file);
+      // track progress while upload runs (Supabase path)
       task.on(
         "state_changed",
         (snap) => {
           const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
           setUploads((prev) => prev.map((u) => u.id === tempId ? { ...u, progress: pct } : u));
         },
-        (err) => {
-          setUploads((prev) => prev.map((u) => u.id === tempId ? { ...u, error: err.message } : u));
-        },
-        () => { setUploads((prev) => prev.filter((u) => u.id !== tempId)); },
+        null,
+        null,
       );
+      // use promise for reliable completion (works for both fast localStorage and async Supabase paths)
+      promise
+        .then(() => setUploads((prev) => prev.filter((u) => u.id !== tempId)))
+        .catch((err: Error) => setUploads((prev) => prev.map((u) => u.id === tempId ? { ...u, error: err.message } : u)));
     }
   }, []);
 
@@ -423,6 +536,20 @@ function AssetsPageBody() {
     setDeleteTarget(null);
   }
 
+  /* ── share with writer ── */
+  async function handleShare(record: AssetRecord) {
+    if (record.shareStatus === "shared" || sharing === record.id) return;
+    setSharing(record.id);
+    try {
+      await shareAssetWithWriter(record);
+      setShareToast(record.name);
+    } catch (err) {
+      console.error("Share failed:", err);
+    } finally {
+      setSharing(null);
+    }
+  }
+
   /* ─── render ──────────────────────────────────────────────────────────── */
 
   return (
@@ -440,6 +567,11 @@ function AssetsPageBody() {
             <p className="mt-3 font-display text-lg text-violet-1">Drop to upload</p>
           </div>
         </div>
+      )}
+
+      {/* Share confirmation toast */}
+      {shareToast && (
+        <ShareToast name={shareToast} onDismiss={() => setShareToast(null)} />
       )}
 
       {/* ── Header ── */}
@@ -497,7 +629,14 @@ function AssetsPageBody() {
 
           {/* ── Your Work ── */}
           <section>
-            <h2 className="font-display text-sm tracking-widest text-ink/40 uppercase">Your Work</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="font-display text-sm tracking-widest text-ink/40 uppercase">Your Work</h2>
+              {createdAssets.length > 0 && (
+                <p className="text-xs text-ink/35">
+                  {createdAssets.filter((a) => a.shareStatus === "shared").length} of {createdAssets.length} shared
+                </p>
+              )}
+            </div>
             {createdAssets.length === 0 ? (
               <div className="mt-4 flex flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-violet-3/20 py-14 text-center">
                 <div className="flex h-12 w-12 items-center justify-center rounded-full border border-violet-3/30 bg-bg-1">
@@ -506,7 +645,7 @@ function AssetsPageBody() {
                 <div>
                   <p className="text-ink/70">Nothing saved yet</p>
                   <p className="mt-1 max-w-xs text-sm text-ink/40">
-                    Designs you save in Resonance will appear here.
+                    Designs you save in the Designer Space will appear here.
                   </p>
                 </div>
                 <Link
@@ -526,6 +665,7 @@ function AssetsPageBody() {
                     inUseBy={inUseMap.get(record.id) ?? []}
                     onRename={handleRename}
                     onDelete={handleDelete}
+                    onShare={handleShare}
                   />
                 ))}
               </div>
@@ -611,7 +751,7 @@ function AssetsPageBody() {
   );
 }
 
-/* ─── page (wrapped with DesignerProvider for project scoping) ───────────── */
+/* ─── wrappers ───────────────────────────────────────────────────────────── */
 
 function AssetsInner() {
   const projectId =

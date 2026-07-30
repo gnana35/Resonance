@@ -53,6 +53,8 @@ type IntentType =
   | "world_building"
   | "comparison"
   | "timeline"
+  | "image_accuracy_check"
+  | "inspiration_mode"
   | "open_question";
 
 type Role = "writer" | "designer";
@@ -66,9 +68,16 @@ type ProjectContext = {
   worldEntities: { label: string; kind: string; description?: string }[];
   openChapter?: { id: string; title: string; contentExcerpt: string };
   chapters: { id: string; title: string }[];
+  /** Asset metadata attached by the designer (for image analysis modes) */
+  attachedAsset?: {
+    name:        string;
+    characterId: string | null;
+    sceneId:     string | null;
+    description: string | null;
+  };
 };
 
-// ─── Brave Search ─────────────────────────────────────────────────────────────
+// ─── Search result type ───────────────────────────────────────────────────────
 
 type BraveResult = {
   title: string;
@@ -77,6 +86,8 @@ type BraveResult = {
   age?: string;
   extra_snippets?: string[];
 };
+
+// ─── Brave Search (optional — needs BRAVE_SEARCH_API_KEY) ────────────────────
 
 async function braveSearch(
   query: string,
@@ -103,6 +114,136 @@ async function braveSearch(
   }
 }
 
+// ─── Tavily Search (optional — needs TAVILY_API_KEY) ─────────────────────────
+
+async function tavilySearch(
+  query: string,
+  count = 5,
+): Promise<BraveResult[]> {
+  const key = process.env.TAVILY_API_KEY;
+  if (!key) return [];
+
+  try {
+    const res = await fetch("https://api.tavily.com/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        api_key: key,
+        query,
+        max_results: count,
+        search_depth: "basic",
+        include_answer: false,
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return [];
+    const json = await res.json() as {
+      results?: { title: string; url: string; content: string; published_date?: string }[];
+    };
+    return (json.results ?? []).map((r) => ({
+      title:       r.title,
+      url:         r.url,
+      description: r.content.slice(0, 400),
+      age:         r.published_date,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+// ─── Wikipedia Search (free, no key required) ────────────────────────────────
+// Uses the MediaWiki Action API — always available, excellent for historical
+// and encyclopaedic queries.
+
+type WikiSearchHit = {
+  title: string;
+  url: string;
+  description: string;
+  extra_snippets?: string[];
+};
+
+const WIKI_UA = "Resonance-ResearchAgent/1.0 (creative-writing-tool; no-contact)";
+
+async function wikipediaSearch(
+  query: string,
+  limit = 4,
+): Promise<WikiSearchHit[]> {
+  try {
+    // Step 1 — find matching page titles
+    // Note: origin=* is a browser CORS param; server-side we omit it and send
+    // a proper User-Agent instead (required by Wikipedia's API policy).
+    const searchUrl =
+      `https://en.wikipedia.org/w/api.php?action=query&list=search` +
+      `&srsearch=${encodeURIComponent(query)}&srlimit=${limit}&utf8=1&format=json`;
+
+    const searchRes = await fetch(searchUrl, {
+      headers: { "User-Agent": WIKI_UA },
+      signal: AbortSignal.timeout(7000),
+    });
+    if (!searchRes.ok) return [];
+    const searchJson = await searchRes.json() as {
+      query?: { search?: { title: string; snippet: string; pageid: number }[] };
+    };
+    const hits = searchJson.query?.search ?? [];
+    if (hits.length === 0) return [];
+
+    // Step 2 — fetch extracts for the top hits in one request
+    const pageIds = hits.map((h) => h.pageid).join("|");
+    const extractUrl =
+      `https://en.wikipedia.org/w/api.php?action=query&pageids=${pageIds}` +
+      `&prop=extracts|info&exintro=1&exchars=500&inprop=url&format=json`;
+
+    const extractRes = await fetch(extractUrl, {
+      headers: { "User-Agent": WIKI_UA },
+      signal: AbortSignal.timeout(7000),
+    });
+    if (!extractRes.ok) return hits.map((h) => ({
+      title:       h.title,
+      url:         `https://en.wikipedia.org/wiki/${encodeURIComponent(h.title.replace(/ /g, "_"))}`,
+      description: h.snippet.replace(/<[^>]+>/g, ""),
+    }));
+
+    const extractJson = await extractRes.json() as {
+      query?: {
+        pages?: Record<string, {
+          title: string;
+          fullurl?: string;
+          extract?: string;
+        }>;
+      };
+    };
+    const pages = extractJson.query?.pages ?? {};
+
+    return hits.map((h) => {
+      const page = pages[String(h.pageid)];
+      const extract = page?.extract?.replace(/<[^>]+>/g, "").trim() ?? "";
+      const snippet = h.snippet.replace(/<[^>]+>/g, "");
+      return {
+        title:          h.title,
+        url:            page?.fullurl ?? `https://en.wikipedia.org/wiki/${encodeURIComponent(h.title.replace(/ /g, "_"))}`,
+        description:    extract || snippet,
+        extra_snippets: extract ? [snippet] : undefined,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+// ─── Combined search: Brave → Tavily → Wikipedia fallback ────────────────────
+
+async function search(query: string, count = 5): Promise<BraveResult[]> {
+  // Try paid providers first (better freshness + full-web coverage)
+  const brave = await braveSearch(query, count);
+  if (brave.length > 0) return brave;
+
+  const tavily = await tavilySearch(query, count);
+  if (tavily.length > 0) return tavily;
+
+  // Always-available Wikipedia fallback — no key required
+  return wikipediaSearch(query, count);
+}
+
 // ─── Source tier classification ───────────────────────────────────────────────
 
 const TIER1_PATTERNS = [
@@ -110,7 +251,7 @@ const TIER1_PATTERNS = [
   /\b(jstor|pubmed|ncbi\.nlm\.nih|doi\.org|arxiv|nature\.com|sciencedirect|springer|wiley|cambridge\.org|oxford(academic)?\.com|britishmuseum|metmuseum|loc\.gov|nationalarchives\.gov|si\.edu|aaa\.si\.edu|europeana)\b/i,
 ];
 const TIER2_PATTERNS = [
-  /\b(bbc\.com|theguardian|nytimes|smithsonianmag|historynet|rhs\.org|oed\.com|britannica|encyclopedia\.com|history\.com|ancient\.eu|worldhistory\.org|archive\.org|gutenberg\.org)\b/i,
+  /\b(wikipedia\.org|bbc\.com|theguardian|nytimes|smithsonianmag|historynet|rhs\.org|oed\.com|britannica|encyclopedia\.com|history\.com|ancient\.eu|worldhistory\.org|archive\.org|gutenberg\.org)\b/i,
 ];
 const EXCLUDED_PATTERNS = [
   /\b(pinterest|tumblr|reddit|quora|yahoo.answers|answers\.com|ask\.com|buzzfeed|medium\.com|fandom\.com|wikia\.com)\b/i,
@@ -137,8 +278,29 @@ function extractPublisher(url: string): string {
 
 // ─── Intent classification ────────────────────────────────────────────────────
 
-function classifyIntent(query: string): { intent: IntentType; role: Role } {
+function classifyIntent(query: string, hasImage = false): { intent: IntentType; role: Role } {
   const q = query.toLowerCase();
+
+  // Image-specific intents — checked first when an image is attached
+  if (hasImage) {
+    if (
+      q.includes("accurate") || q.includes("accuracy") || q.includes("historically") ||
+      q.includes("correct") || q.includes("match") || q.includes("matches") ||
+      q.includes("compare") || q.includes("vision") || q.includes("author") ||
+      q.includes("description") || q.includes("verify")
+    ) {
+      return { intent: "image_accuracy_check", role: "designer" };
+    }
+    if (
+      q.includes("inspiration") || q.includes("inspire") || q.includes("based on") ||
+      q.includes("reference") || q.includes("align") || q.includes("improve") ||
+      q.includes("recommend") || q.includes("suggest")
+    ) {
+      return { intent: "inspiration_mode", role: "designer" };
+    }
+    // Default when image attached with no other signal: treat as accuracy check
+    return { intent: "image_accuracy_check", role: "designer" };
+  }
 
   const designerSignals = [
     "draw", "depict", "illustrate", "render", "paint", "sketch", "design",
@@ -308,6 +470,7 @@ function synthesiseBlocks(
   results: { result: BraveResult; tier: 1 | 2 | 3 }[],
   sources: Source[],
   ctx: ProjectContext,
+  attachedImageUrl?: string,
 ): ResearchBlock[] {
   const blocks: ResearchBlock[] = [];
   const isInvented = !ctx.setting; // conservative: no setting = possibly invented world
@@ -317,10 +480,9 @@ function synthesiseBlocks(
       type: "uncertainty",
       heading: "No sources retrieved",
       body:
-        "No usable web sources were returned for this query. " +
-        "This may be because no search API key is configured (add BRAVE_SEARCH_API_KEY to .env.local), " +
-        "or the search returned no results above quality threshold. " +
-        "The findings below rest on the project context you provided, not on retrieved sources.",
+        "No usable sources were found for this query — Wikipedia returned no results above the quality threshold. " +
+        "For broader web coverage, add a BRAVE_SEARCH_API_KEY or TAVILY_API_KEY to .env.local. " +
+        "The findings below rest on your project context, not on retrieved sources.",
     } satisfies ResearchBlock);
 
     // Still produce a prose block from project context
@@ -467,6 +629,177 @@ function synthesiseBlocks(
       break;
     }
 
+    case "image_accuracy_check": {
+      // Build the writer's reference for the attached asset
+      const assetRef = ctx.attachedAsset;
+      const writerDesc =
+        assetRef?.description
+          ? `Author's description: "${assetRef.description}"`
+          : assetRef?.characterId
+          ? `Character/entity: "${assetRef.characterId}"${assetRef.sceneId ? `, scene: "${assetRef.sceneId}"` : ""}`
+          : "No author description was provided with this asset.";
+
+      const settingHint = ctx.setting ? ` in ${ctx.setting}` : "";
+
+      // Intro
+      blocks.splice(0, 1, {
+        type: "prose",
+        heading: "Historical Accuracy & Vision Check",
+        body:
+          `Comparing the uploaded design against the author's description and period accuracy${settingHint}.\n\n` +
+          writerDesc +
+          (results.length > 0
+            ? `\n\nResearch draws on ${results.length} source${results.length !== 1 ? "s" : ""}.`
+            : "\n\n*No live sources retrieved — findings are based on project context and general knowledge.*"),
+      });
+
+      // Accuracy comparison table
+      const rows: { aspect: string; accurate: string; misconception: string }[] = [];
+
+      // Populate from search results covering known accuracy topics
+      const topics = [
+        "clothing", "garments", "dress", "attire",
+        "architecture", "building", "structure",
+        "weapons", "tools", "objects",
+        "culture", "customs", "society",
+        "time period", "era", "century",
+      ];
+      for (const { result } of results.slice(0, 6)) {
+        const text = (result.title + " " + result.description).toLowerCase();
+        const matchedTopic = topics.find((t) => text.includes(t));
+        if (matchedTopic) {
+          rows.push({
+            aspect: matchedTopic.charAt(0).toUpperCase() + matchedTopic.slice(1),
+            accurate: result.description.slice(0, 130),
+            misconception: result.extra_snippets?.[0]?.slice(0, 100) ?? "—",
+          });
+        }
+      }
+
+      if (rows.length > 0) {
+        blocks.push({
+          type: "comparison",
+          heading: "Accuracy: Historical Record vs Common Depiction",
+          leftLabel: "Historically accurate",
+          rightLabel: "Common anachronism / misconception",
+          rows: rows.slice(0, 5),
+        });
+      }
+
+      // Mismatch prose + suggestions
+      const mismatches: string[] = [];
+      if (assetRef?.characterId && ctx.characters.length > 0) {
+        const char = ctx.characters.find(
+          (c) => c.name.toLowerCase() === assetRef.characterId?.toLowerCase()
+        );
+        if (char?.bio) {
+          mismatches.push(`The author describes **${char.name}** as: "${char.bio.slice(0, 200)}"`);
+        }
+      }
+
+      blocks.push({
+        type: "prose",
+        heading: "Alignment with Author's Vision",
+        body:
+          (mismatches.length > 0 ? mismatches.join("\n\n") + "\n\n" : "") +
+          "**Suggestions for improvement:**\n" +
+          results.slice(0, 3).map(({ result }, i) =>
+            `${i + 1}. ${result.title}: ${result.description.slice(0, 120)}`
+          ).join("\n"),
+      });
+
+      // Spec list of period-accurate details from sources
+      const specItems = results.slice(0, 4)
+        .filter(({ result }) => result.extra_snippets && result.extra_snippets.length > 0)
+        .flatMap(({ result }) => {
+          const src = sources.find((s) => s.url === result.url);
+          return (result.extra_snippets ?? []).slice(0, 1).map((snip) => ({
+            label: result.title.slice(0, 50),
+            detail: snip.slice(0, 180),
+            sourceKey: src?.key,
+          }));
+        });
+      if (specItems.length > 0) {
+        blocks.push({
+          type: "spec_list",
+          heading: "Period-Accurate Details to Consider",
+          items: specItems.slice(0, 6),
+        });
+      }
+      break;
+    }
+
+    case "inspiration_mode": {
+      const assetRef = ctx.attachedAsset;
+      const writerDesc =
+        assetRef?.description
+          ? `Author's description: "${assetRef.description}"`
+          : assetRef?.characterId
+          ? `Character/entity: "${assetRef.characterId}"${assetRef.sceneId ? `, scene: "${assetRef.sceneId}"` : ""}`
+          : "Use the uploaded image as creative inspiration.";
+
+      const settingHint = ctx.setting ? ` in the world of ${ctx.setting}` : "";
+
+      blocks.splice(0, 1, {
+        type: "prose",
+        heading: "Inspiration Mode",
+        body:
+          `Using the uploaded image as inspiration${settingHint}.\n\n` +
+          writerDesc +
+          "\n\n" +
+          "The agent will compare this reference with the author's description and recommend how to align the artwork with the narrative vision.",
+      });
+
+      // Alignment comparison
+      if (results.length >= 2) {
+        blocks.push({
+          type: "comparison",
+          heading: "Inspiration vs Author's Vision",
+          leftLabel: "Inspiration image suggests",
+          rightLabel: "Recommended for the story",
+          rows: results.slice(0, 4).map(({ result }) => ({
+            aspect: result.title.slice(0, 45),
+            accurate: result.description.slice(0, 120),
+            misconception: result.extra_snippets?.[0]?.slice(0, 120) ?? "Adapt to fit the story's tone",
+          })),
+        });
+      }
+
+      // Recommendation prose
+      const charMentions = ctx.characters.slice(0, 3)
+        .map((c) => `**${c.name}** (${c.role})${c.bio ? `: "${c.bio.slice(0, 100)}"` : ""}`)
+        .join("\n");
+
+      blocks.push({
+        type: "prose",
+        heading: "Recommendations to Better Align with the Author's Vision",
+        body:
+          (charMentions ? `**Characters in scope:**\n${charMentions}\n\n` : "") +
+          "**Ways to adapt this inspiration to the story:**\n" +
+          results.slice(0, 4).map(({ result }, i) =>
+            `${i + 1}. **${result.title.slice(0, 50)}** — ${result.description.slice(0, 150)}`
+          ).join("\n"),
+      });
+
+      // Visual ref grid from search results
+      const visItems = results.slice(0, 4).map(({ result }) => ({
+        imageUrl: "",
+        caption: result.title,
+        studyNote: result.description.slice(0, 120),
+        source: extractPublisher(result.url),
+        sourceUrl: result.url,
+        sourceKey: sources.find((s) => s.url === result.url)?.key,
+      }));
+      if (visItems.length > 0) {
+        blocks.push({
+          type: "visual_reference",
+          heading: "Related References",
+          items: visItems,
+        });
+      }
+      break;
+    }
+
     default: {
       // Additional prose from remaining sources
       for (const { result } of results.slice(1, 3)) {
@@ -518,15 +851,17 @@ function frame(event: string, data: unknown): string {
 
 export async function POST(req: NextRequest): Promise<Response> {
   const body = await req.json() as {
-    query: string;
-    context: ProjectContext;
+    query:             string;
+    context:           ProjectContext;
     attachedImageUrl?: string;
   };
 
-  const { query, context: ctx } = body;
+  const { query, context: ctx, attachedImageUrl } = body;
+  const hasImage = !!attachedImageUrl;
 
   const encoder = new TextEncoder();
-  const hasBraveKey = !!process.env.BRAVE_SEARCH_API_KEY;
+  const hasAnySearchKey = !!(process.env.BRAVE_SEARCH_API_KEY || process.env.TAVILY_API_KEY);
+  const searchProvider  = process.env.BRAVE_SEARCH_API_KEY ? "Brave" : process.env.TAVILY_API_KEY ? "Tavily" : "Wikipedia";
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -539,27 +874,29 @@ export async function POST(req: NextRequest): Promise<Response> {
         push(frame("step", { label: "Understanding your question", status: "running" }));
         await tick();
 
-        const { intent, role } = classifyIntent(query);
+        const { intent, role } = classifyIntent(query, hasImage);
 
         push(frame("step", { label: "Understanding your question", status: "done", detail: `Intent: ${intent} · Role: ${role}` }));
 
         // ── Step 2: Build queries + search ───────────────────────────────────
-        push(frame("step", { label: "Searching sources", status: hasBraveKey ? "running" : "error", detail: hasBraveKey ? "" : "No BRAVE_SEARCH_API_KEY — add it to .env.local for live results" }));
+        push(frame("step", {
+          label:  "Searching sources",
+          status: "running",
+          detail: hasAnySearchKey ? `Using ${searchProvider}` : "Using Wikipedia (free) — add BRAVE_SEARCH_API_KEY or TAVILY_API_KEY for broader coverage",
+        }));
         await tick();
 
         const queries = buildSearchQueries(query, intent, ctx);
         const rawResults: BraveResult[] = [];
 
-        if (hasBraveKey) {
-          for (const q of queries) {
-            push(frame("step", { label: "Searching sources", status: "running", detail: `→ "${q}"` }));
-            const res = await braveSearch(q, 4);
-            rawResults.push(...res);
-            await tick();
-          }
+        for (const q of queries) {
+          push(frame("step", { label: "Searching sources", status: "running", detail: `→ "${q}"` }));
+          const res = await search(q, 4);
+          rawResults.push(...res);
+          await tick();
         }
 
-        push(frame("step", { label: "Searching sources", status: "done", detail: `${rawResults.length} results` }));
+        push(frame("step", { label: "Searching sources", status: "done", detail: `${rawResults.length} result${rawResults.length !== 1 ? "s" : ""} via ${searchProvider}` }));
 
         // ── Step 3: Evaluate sources ─────────────────────────────────────────
         push(frame("step", { label: "Evaluating credibility", status: "running" }));
@@ -603,7 +940,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         push(frame("step", { label: "Writing findings", status: "running" }));
         await tick();
 
-        const blocks = synthesiseBlocks(query, intent, role, tieredResults, sources, ctx);
+        const blocks = synthesiseBlocks(query, intent, role, tieredResults, sources, ctx, attachedImageUrl);
 
         push(frame("step", { label: "Writing findings", status: "done", detail: `${blocks.length} block${blocks.length > 1 ? "s" : ""}` }));
 

@@ -5,8 +5,9 @@
  *
  * Provides DesignerProvider, manages all tool/canvas state, handles:
  *   - New Design modal with title + dimensions
+ *   - Save Details modal — captures character/scene/description on first save
  *   - Design picker (list of designs in project)
- *   - Save → thumbnail written as Asset, design persisted to localStorage
+ *   - Save → thumbnail written as Asset with metadata, design persisted to localStorage
  *   - Export → flat PNG download
  *   - Autosave with 3-second debounce
  *   - Navigate-away warning when there are unsaved changes
@@ -22,6 +23,7 @@ import {
 } from "react";
 import { useSearchParams } from "next/navigation";
 import {
+  CheckCircle2,
   Download,
   Loader2,
   PenTool,
@@ -29,6 +31,7 @@ import {
   Save,
   ShieldCheck,
   Sparkles,
+  Upload,
   X,
 } from "lucide-react";
 import {
@@ -47,7 +50,10 @@ import { ApprovalsPanel } from "@/components/ApprovalsPanel";
 import {
   saveCreatedAsset,
   updateCreatedAsset,
+  updateAssetMeta,
   linkDesignToAsset,
+  uploadAsset,
+  type SaveCreatedAssetOpts,
 } from "@/lib/assets";
 
 /* ────────────────────────────────────────────────────────────────────────── */
@@ -173,6 +179,115 @@ function NewDesignModal({
 }
 
 /* ────────────────────────────────────────────────────────────────────────── */
+/*  Save Details modal — collected on every explicit Save                     */
+/* ────────────────────────────────────────────────────────────────────────── */
+
+function SaveDetailsModal({
+  initialName,
+  initialOpts,
+  onConfirm,
+  onClose,
+}: {
+  initialName: string;
+  initialOpts: SaveCreatedAssetOpts;
+  onConfirm:   (name: string, opts: SaveCreatedAssetOpts) => void;
+  onClose:     () => void;
+}) {
+  const [name,        setName]        = useState(initialName);
+  const [characterId, setCharacterId] = useState(initialOpts.characterId ?? "");
+  const [sceneId,     setSceneId]     = useState(initialOpts.sceneId     ?? "");
+  const [description, setDescription] = useState(initialOpts.description ?? "");
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-bg-0/80 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="mx-4 w-full max-w-sm rounded-2xl border border-violet-3/30 bg-bg-1 p-6"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <p className="font-display text-lg text-violet-1">Save to Assets</p>
+          <button onClick={onClose} className="text-ink/40 hover:text-ink">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <p className="mt-1 text-sm text-ink/50">
+          Add details so your writer knows what this design depicts.
+        </p>
+
+        <div className="mt-4 flex flex-col gap-3">
+          <label className="flex flex-col gap-1 text-sm text-ink/60">
+            Asset name
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="rounded-lg border border-violet-3/25 bg-bg-0 px-3 py-2 text-sm text-ink placeholder:text-ink/30 focus:border-violet-2/50 focus:outline-none"
+              placeholder="e.g. Lyra — concept art"
+              autoFocus
+            />
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm text-ink/60">
+            Character / entity
+            <input
+              value={characterId}
+              onChange={(e) => setCharacterId(e.target.value)}
+              className="rounded-lg border border-violet-3/25 bg-bg-0 px-3 py-2 text-sm text-ink placeholder:text-ink/30 focus:border-violet-2/50 focus:outline-none"
+              placeholder="e.g. Lyra, Chapter 3 tavern scene…"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm text-ink/60">
+            Scene / chapter reference
+            <input
+              value={sceneId}
+              onChange={(e) => setSceneId(e.target.value)}
+              className="rounded-lg border border-violet-3/25 bg-bg-0 px-3 py-2 text-sm text-ink placeholder:text-ink/30 focus:border-violet-2/50 focus:outline-none"
+              placeholder="e.g. Ch. 3 — The Heist"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm text-ink/60">
+            Description
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              className="resize-none rounded-lg border border-violet-3/25 bg-bg-0 px-3 py-2 text-sm text-ink placeholder:text-ink/30 focus:border-violet-2/50 focus:outline-none"
+              placeholder="Brief description of what is depicted…"
+            />
+          </label>
+        </div>
+
+        <div className="mt-5 flex justify-end gap-3">
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-violet-3/30 px-4 py-2 text-sm text-ink/70 transition-colors hover:border-violet-2/50 hover:text-ink"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() =>
+              onConfirm(name.trim() || initialName, {
+                characterId: characterId.trim() || undefined,
+                sceneId:     sceneId.trim()     || undefined,
+                description: description.trim() || undefined,
+              })
+            }
+            className="flex items-center gap-2 rounded-lg bg-violet-2 px-4 py-2 text-sm font-medium text-bg-0 transition-colors hover:bg-violet-1"
+          >
+            <Save className="h-3.5 w-3.5" />
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────────────── */
 /*  Blocked-draw toast                                                        */
 /* ────────────────────────────────────────────────────────────────────────── */
 
@@ -197,7 +312,7 @@ type SaveState    = "idle" | "saving" | "saved" | "error";
 
 function DesignerWorkspace() {
   const {
-    designs, activeDesign, createDesign, openDesign, deleteDesign,
+    designs, activeDesign, createDesign, openDesign,
     updateDesignMeta, saveDesign,
     canUndo, canRedo, undo, redo,
     activeLayers,
@@ -212,14 +327,21 @@ function DesignerWorkspace() {
   const [opacity,     setOpacity]     = useState(100);
 
   /* ── ui state ── */
-  const [tab,          setTab]          = useState<WorkspaceTab>("Sketchpad");
-  const [saveState,    setSaveState]    = useState<SaveState>("idle");
-  const [showNewModal, setShowNewModal] = useState(false);
-  const [blockedMsg,   setBlockedMsg]   = useState<string | null>(null);
-  const [dirty,        setDirty]        = useState(false);
+  const [tab,             setTab]             = useState<WorkspaceTab>("Sketchpad");
+  const [saveState,       setSaveState]       = useState<SaveState>("idle");
+  const [showNewModal,    setShowNewModal]     = useState(false);
+  const [showSaveDetails, setShowSaveDetails] = useState(false);
+  const [blockedMsg,      setBlockedMsg]       = useState<string | null>(null);
+  const [dirty,           setDirty]           = useState(false);
+  const [autosaveMsg,     setAutosaveMsg]     = useState<string | null>(null);
 
-  const canvasRef = useRef<SketchpadHandle>(null);
-  const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Pending save opts — set when the user opens the Save Details modal */
+  const pendingSaveOpts = useRef<SaveCreatedAssetOpts>({});
+
+  const canvasRef      = useRef<SketchpadHandle>(null);
+  const autosaveTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleSaveRef  = useRef<(isAutosave?: boolean, opts?: SaveCreatedAssetOpts) => Promise<void>>(() => Promise.resolve());
+  const uploadInputRef = useRef<HTMLInputElement>(null);
 
   /* ── open design from ?design= URL param ── */
   useEffect(() => {
@@ -241,7 +363,7 @@ function DesignerWorkspace() {
   const savingRef  = useRef(false);
   useEffect(() => {
     if (!mountedRef.current) { mountedRef.current = true; return; }
-    if (savingRef.current) return;   // layer change caused by saving itself — ignore
+    if (savingRef.current) return;
     setDirty(true);
   }, [activeLayers]);
 
@@ -256,33 +378,25 @@ function DesignerWorkspace() {
     return () => window.removeEventListener("beforeunload", handler);
   }, [dirty]);
 
-  /* ── autosave (3 s debounce after last user change) ── */
-  useEffect(() => {
-    if (!dirty || !activeDesign) return;
-    if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
-    autosaveTimer.current = setTimeout(() => {
-      handleSave(true);
-    }, 3000);
-    return () => {
-      if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dirty, activeLayers]);
-
   /* ── save ───────────────────────────────────────────────────────────────
    * First save:   render thumbnail blob → saveCreatedAsset (Firebase Storage
    *               + Firestore) → linkDesignToAsset → store assetId +
    *               assetStoragePath on the Design so we can update next time.
+   *               If called with opts (from Save Details modal), those are
+   *               persisted on the asset record.
    * Subsequent:   updateCreatedAsset (overwrites Storage thumbnail, refreshes
    *               Firestore doc) — never creates a second record.
+   *               If opts are provided, also calls updateAssetMeta.
    * ──────────────────────────────────────────────────────────────────── */
-  const handleSave = useCallback(async (isAutosave = false) => {
+  const handleSave = useCallback(async (
+    isAutosave = false,
+    opts: SaveCreatedAssetOpts = {},
+  ) => {
     if (!activeDesign || !canvasRef.current) return;
     if (!isAutosave) setSaveState("saving");
 
     savingRef.current = true;
     try {
-      // 1. Render the canvas to a PNG blob for the thumbnail
       const blob = await canvasRef.current.getThumbnailBlob();
 
       if (activeDesign.assetId && activeDesign.assetStoragePath) {
@@ -293,7 +407,10 @@ function DesignerWorkspace() {
           activeDesign.title,
           blob,
         );
-        // Stamp updatedAt on the local design record
+        // If the user supplied new metadata, patch it too
+        if (opts.characterId !== undefined || opts.sceneId !== undefined || opts.description !== undefined) {
+          await updateAssetMeta(activeDesign.assetId, opts);
+        }
         saveDesign(activeDesign.id);
       } else {
         // ── CREATE new asset ───────────────────────────────────────────
@@ -301,10 +418,9 @@ function DesignerWorkspace() {
           activeDesign.title,
           blob,
           "image/png",
+          opts,
         );
-        // Write designId back onto the Firestore asset doc
         await linkDesignToAsset(assetRecord.id, activeDesign.id);
-        // Persist assetId + storagePath on the Design so subsequent saves update
         updateDesignMeta(activeDesign.id, {
           assetId:          assetRecord.id,
           assetStoragePath: assetRecord.storagePath ?? undefined,
@@ -312,7 +428,7 @@ function DesignerWorkspace() {
         saveDesign(activeDesign.id);
       }
 
-      // Fire consistency event so ConsistencyContext can extract design facts
+      // Fire consistency event
       window.dispatchEvent(
         new CustomEvent("resonance:designSaved", {
           detail: {
@@ -325,20 +441,42 @@ function DesignerWorkspace() {
       );
 
       setDirty(false);
-      if (!isAutosave) {
+      if (isAutosave) {
+        setAutosaveMsg("Saved to Assets");
+        setTimeout(() => setAutosaveMsg(null), 2500);
+      } else {
         setSaveState("saved");
         setTimeout(() => setSaveState("idle"), 2500);
       }
     } catch (err) {
       console.error("Save failed:", err);
-      if (!isAutosave) {
-        setSaveState("error");
-        setTimeout(() => setSaveState("idle"), 3000);
-      }
+      setSaveState("error");
+      setTimeout(() => setSaveState("idle"), 3000);
     } finally {
       savingRef.current = false;
     }
   }, [activeDesign, activeLayers, saveDesign, updateDesignMeta]);
+
+  // Keep the ref always pointing at the latest handleSave
+  useEffect(() => { handleSaveRef.current = handleSave; }, [handleSave]);
+
+  /* ── autosave (3 s debounce after last user change) ── */
+  useEffect(() => {
+    if (!dirty || !activeDesign) return;
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+    autosaveTimer.current = setTimeout(() => {
+      handleSaveRef.current(true);
+    }, 3000);
+    return () => {
+      if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+    };
+  }, [dirty, activeLayers, activeDesign]);
+
+  /* ── explicit save — opens Save Details modal ── */
+  function openSaveModal() {
+    if (!activeDesign) return;
+    setShowSaveDetails(true);
+  }
 
   /* ── export (flat PNG download) ── */
   const handleExport = useCallback(async () => {
@@ -361,14 +499,25 @@ function DesignerWorkspace() {
     createDesign(title, w, h);
     setShowNewModal(false);
     setDirty(false);
-    // Update URL
-    // (the new design becomes active automatically via context)
   }
+
+  /* ── upload files to assets ── */
+  const handleUploadFiles = useCallback((files: FileList | File[]) => {
+    for (const file of Array.from(files)) {
+      const { promise } = uploadAsset(file);
+      promise
+        .then(() => {
+          setAutosaveMsg(`"${file.name}" uploaded to Assets`);
+          setTimeout(() => setAutosaveMsg(null), 2500);
+        })
+        .catch((err) => console.error("Upload failed:", err));
+    }
+  }, []);
 
   const saveLabel =
     saveState === "saving" ? "Saving…"
     : saveState === "saved" ? "Saved ✓"
-    : saveState === "error" ? "Error"
+    : saveState === "error" ? "Error ✕"
     : dirty ? "Save*"
     : "Save";
 
@@ -384,9 +533,37 @@ function DesignerWorkspace() {
         />
       )}
 
+      {showSaveDetails && activeDesign && (
+        <SaveDetailsModal
+          initialName={activeDesign.title}
+          initialOpts={pendingSaveOpts.current}
+          onConfirm={(name, opts) => {
+            pendingSaveOpts.current = opts;
+            setShowSaveDetails(false);
+            handleSave(false, { ...opts, characterId: opts.characterId, sceneId: opts.sceneId, description: opts.description });
+          }}
+          onClose={() => setShowSaveDetails(false)}
+        />
+      )}
+
       {blockedMsg && (
         <BlockedToast message={blockedMsg} onDismiss={() => setBlockedMsg(null)} />
       )}
+
+      {/* Hidden file input for uploads */}
+      <input
+        ref={uploadInputRef}
+        type="file"
+        multiple
+        accept="image/*,application/pdf,audio/*,video/*,text/*,.svg"
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files?.length) {
+            handleUploadFiles(e.target.files);
+            e.target.value = "";
+          }
+        }}
+      />
 
       {/* ── Header ── */}
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -398,10 +575,16 @@ function DesignerWorkspace() {
             <h1 className="font-display text-2xl text-violet-1">
               Designer Space
             </h1>
-            <p className="mt-0.5 text-sm text-ink/50">
+            <p className="mt-0.5 flex items-center gap-2 text-sm text-ink/50">
               {activeDesign
                 ? `Editing: ${activeDesign.title}${dirty ? " · unsaved" : ""}`
                 : "Sketch. Create. Build your world."}
+              {autosaveMsg && (
+                <span className="flex items-center gap-1 text-emerald-500">
+                  <CheckCircle2 className="h-3 w-3" />
+                  {autosaveMsg}
+                </span>
+              )}
             </p>
           </div>
         </div>
@@ -410,14 +593,10 @@ function DesignerWorkspace() {
           {/* Design picker */}
           <select
             value={activeDesign?.id ?? ""}
-            onChange={(e) => {
-              if (e.target.value) openDesign(e.target.value);
-            }}
+            onChange={(e) => { if (e.target.value) openDesign(e.target.value); }}
             className="rounded-lg border border-violet-3/30 bg-bg-1 px-3 py-1.5 text-sm text-ink/70 focus:border-violet-2/50 focus:outline-none"
           >
-            {designs.length === 0 && (
-              <option value="">No designs yet</option>
-            )}
+            {designs.length === 0 && <option value="">No designs yet</option>}
             {designs.map((d) => (
               <option key={d.id} value={d.id}>{d.title}</option>
             ))}
@@ -431,6 +610,15 @@ function DesignerWorkspace() {
             New
           </button>
 
+          {/* Upload files directly to Assets */}
+          <button
+            onClick={() => uploadInputRef.current?.click()}
+            className="flex items-center gap-1.5 rounded-lg border border-violet-3/30 px-3 py-1.5 text-sm text-ink/70 transition-colors hover:border-violet-2/50 hover:text-ink"
+          >
+            <Upload className="h-3.5 w-3.5" />
+            Upload
+          </button>
+
           <button
             onClick={handleExport}
             disabled={!activeDesign}
@@ -441,7 +629,7 @@ function DesignerWorkspace() {
           </button>
 
           <button
-            onClick={() => handleSave(false)}
+            onClick={openSaveModal}
             disabled={saveState === "saving" || !activeDesign}
             className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-wait ${
               saveState === "saved"
@@ -486,7 +674,6 @@ function DesignerWorkspace() {
       {tab === "Sketchpad" && (
         <>
           {!activeDesign ? (
-            /* Empty state */
             <div className="mt-16 flex flex-col items-center justify-center gap-5 text-center">
               <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-violet-3/30 bg-bg-1">
                 <PenTool className="h-7 w-7 text-violet-3/50" />
