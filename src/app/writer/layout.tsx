@@ -4,6 +4,7 @@ import { TopNav } from "@/components/TopNav";
 import { WriterSidebar } from "@/components/WriterSidebar";
 import { CharactersLayout } from "./CharactersLayout";
 import { ConsistencyProvider } from "@/context/ConsistencyContext";
+import { ToastProvider } from "@/components/Toast";
 
 function getActiveProjectId(): string | undefined {
   if (typeof window === "undefined") return undefined;
@@ -19,15 +20,17 @@ export default function WriterLayout({
 
   return (
     <ConsistencyProvider activeProjectId={activeProjectId}>
-      <div className="min-h-screen bg-bg-0">
-        <TopNav />
-        <div className="flex">
-          <WriterSidebar />
-          <main className="min-w-0 flex-1">
-            <CharactersLayout>{children}</CharactersLayout>
-          </main>
+      <ToastProvider>
+        <div className="min-h-screen bg-bg-0">
+          <TopNav />
+          <div className="flex">
+            <WriterSidebar />
+            <main className="min-w-0 flex-1">
+              <CharactersLayout>{children}</CharactersLayout>
+            </main>
+          </div>
         </div>
-      </div>
+      </ToastProvider>
     </ConsistencyProvider>
   );
 }

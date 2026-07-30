@@ -10,6 +10,7 @@ import {
   Settings,
 } from "lucide-react";
 import { useConsistency } from "@/context/ConsistencyContext";
+import { useUnreadCount } from "@/hooks/useUnreadCount";
 
 const NAV_ITEMS = [
   { href: "/designer",              label: "Designer's Space", icon: Palette,       exact: true },
@@ -22,6 +23,9 @@ const NAV_ITEMS = [
 export function DesignerSidebar() {
   const pathname = usePathname();
   const { pendingCount } = useConsistency();
+  const supabaseUnread = useUnreadCount("designer");
+  // Total badge = local consistency discrepancies + Supabase collaboration notifications.
+  const totalBadge = pendingCount + supabaseUnread;
 
   return (
     <aside className="flex w-64 shrink-0 flex-col border-r border-violet-3/30 px-4 py-6 md:w-72">
@@ -43,9 +47,9 @@ export function DesignerSidebar() {
             >
               <Icon className="h-4 w-4 shrink-0" />
               <span className="flex-1">{item.label}</span>
-              {item.badge && pendingCount > 0 && (
+              {item.badge && totalBadge > 0 && (
                 <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-violet-2 px-1 text-[10px] font-bold text-bg-0">
-                  {pendingCount > 99 ? "99+" : pendingCount}
+                  {totalBadge > 99 ? "99+" : totalBadge}
                 </span>
               )}
             </Link>

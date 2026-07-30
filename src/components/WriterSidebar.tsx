@@ -12,6 +12,7 @@ import {
   User,
 } from "lucide-react";
 import { useConsistency } from "@/context/ConsistencyContext";
+import { useUnreadCount } from "@/hooks/useUnreadCount";
 
 const NAV_ITEMS = [
   { href: "/writer",                  label: "Writer's Space", icon: PenLine,       exact: true },
@@ -26,6 +27,9 @@ const NAV_ITEMS = [
 function WriterSidebarInner() {
   const pathname = usePathname();
   const { pendingCount } = useConsistency();
+  const supabaseUnread = useUnreadCount("writer");
+  // Total badge = local consistency discrepancies + Supabase collaboration notifications.
+  const totalBadge = pendingCount + supabaseUnread;
 
   return (
     <aside className="flex w-64 shrink-0 flex-col justify-between border-r border-gold-3/20 px-4 py-6 md:w-72">
@@ -47,9 +51,9 @@ function WriterSidebarInner() {
             >
               <Icon className="h-4 w-4 shrink-0" />
               <span className="flex-1">{item.label}</span>
-              {item.badge && pendingCount > 0 && (
+              {item.badge && totalBadge > 0 && (
                 <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-gold-2 px-1 text-[10px] font-bold text-bg-0">
-                  {pendingCount > 99 ? "99+" : pendingCount}
+                  {totalBadge > 99 ? "99+" : totalBadge}
                 </span>
               )}
             </Link>

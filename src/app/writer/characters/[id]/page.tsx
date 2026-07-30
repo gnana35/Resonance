@@ -11,11 +11,14 @@ import {
   Lock,
   LockOpen,
   MapPin,
+  Palette,
   Pencil,
   RefreshCw,
+  Send,
   Sparkles,
   Trash2,
   Users,
+  X,
 } from "lucide-react";
 import { useCharacters } from "@/context/CharactersContext";
 import { CharacterAvatar } from "@/components/CharacterAvatar";
@@ -26,6 +29,8 @@ import {
   NewCharacterModal,
 } from "@/components/CharacterModals";
 import type { ArcPoint, Character, Evidence, LockableField } from "@/data/characters";
+import { createNotification } from "@/lib/notifications";
+import { useToast } from "@/components/Toast";
 
 const TABS = ["Overview", "Role", "Relationships", "Arc", "Notes"] as const;
 type Tab = (typeof TABS)[number];
@@ -358,6 +363,141 @@ function ArcChart({
   );
 }
 
+/* ── Send-to-Designer modal ─────────────────────────────────────────────── */
+
+function SendToDesignerModal({
+  character,
+  onClose,
+  onSent,
+}: {
+  character: Character;
+  onClose: () => void;
+  onSent: () => void;
+}) {
+  const [brief, setBrief] = useState(character.bio ?? character.description ?? "");
+  const [busy,  setBusy]  = useState(false);
+
+  const activeProjectId =
+    typeof window !== "undefined"
+      ? (localStorage.getItem("resonance:activeProject") ?? undefined)
+      : undefined;
+
+  async function handleSend() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await createNotification({
+        recipient:   "designer",
+        sender:      "writer",
+        type:        "character-request",
+        title:       `New character request: ${character.name}`,
+        message:     brief.trim() || `Please design ${character.name}.`,
+        severity:    "info",
+        characterId: character.id,
+        projectId:   activeProjectId,
+        payload: {
+          characterName:  character.name,
+          role:           character.role,
+          description:    character.description,
+          bio:            character.bio,
+          keyTraits:      character.keyTraits ?? character.traits,
+          age:            character.age,
+          occupation:     character.occupation,
+          origin:         character.origin,
+          affiliation:    character.affiliation,
+          arcSummary:     character.arcSummary,
+          brief:          brief.trim(),
+        },
+      });
+      onSent();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-bg-0/80 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg rounded-2xl border border-gold-3/30 bg-bg-1 p-6"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Palette className="h-4 w-4 text-violet-2" />
+            <p className="font-display text-lg text-gold-1">
+              Send to Designer
+            </p>
+          </div>
+          <button onClick={onClose} className="text-ink/40 hover:text-ink">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Character summary */}
+        <div className="mt-4 rounded-xl border border-gold-3/20 bg-bg-0 px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wider text-gold-2/60">
+            Character
+          </p>
+          <p className="mt-1 font-display text-base text-gold-1">{character.name}</p>
+          {character.role && (
+            <p className="text-xs text-ink/50">{character.role}</p>
+          )}
+          {character.traits.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {character.traits.map((t) => (
+                <span
+                  key={t}
+                  className="rounded-full bg-gold-2/10 px-2 py-0.5 text-[10px] text-ink/60"
+                >
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Brief textarea */}
+        <div className="mt-4">
+          <label className="text-xs text-ink/50">
+            Brief / specific instructions for the designer *
+          </label>
+          <textarea
+            value={brief}
+            onChange={(e) => setBrief(e.target.value)}
+            rows={5}
+            placeholder="Describe the visual style, mood, colour palette, references, and anything else the designer needs to know…"
+            className="mt-1.5 w-full resize-none rounded-xl border border-gold-3/25 bg-bg-0 px-3 py-2.5 text-sm text-ink placeholder:text-ink/30 focus:border-gold-2/50 focus:outline-none"
+          />
+        </div>
+
+        {/* Actions */}
+        <div className="mt-5 flex justify-end gap-3">
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-gold-3/25 px-4 py-2 text-sm text-ink/60 hover:text-ink"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSend}
+            disabled={busy}
+            className="flex items-center gap-2 rounded-lg bg-violet-2 px-4 py-2 text-sm font-medium text-bg-0 transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            <Send className="h-3.5 w-3.5" />
+            {busy ? "Sending…" : "Send to Designer"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Main page ─────────────────────────────────────────────────────────── */
 
 export default function CharacterDetail({
@@ -377,22 +517,77 @@ export default function CharacterDetail({
     declinePromotion,
     onOpenChapterEvidence,
   } = useCharacters();
+  const { showToast } = useToast();
 
   const character = characters.find((c) => c.id === id)
     ?? allCharacters.find((c) => c.id === id);
   const isDraft = character?.isDraft === true;
   const router = useRouter();
 
-  const [activeTab, setActiveTab] = useState<Tab>("Overview");
-  const [notes, setNotes] = useState(character?.notes ?? "");
-  const [showEdit, setShowEdit] = useState(false);
-  const [showDelete, setShowDelete] = useState(false);
-  const [showAddChar, setShowAddChar] = useState(false);
+  const [activeTab,       setActiveTab]       = useState<Tab>("Overview");
+  const [notes,           setNotes]           = useState(character?.notes ?? "");
+  const [showEdit,        setShowEdit]        = useState(false);
+  const [showDelete,      setShowDelete]      = useState(false);
+  const [showAddChar,     setShowAddChar]     = useState(false);
+  const [showSendModal,   setShowSendModal]   = useState(false);
+
+  const alreadySent = character?.sentToDesigner === true;
 
   function handleEvaluateDraft() {
     if (!character) return;
     const chapters = getProjectChapters(character.projectId);
     evaluateDraft(character.id, chapters);
+  }
+
+  function handleSentToDesigner() {
+    if (!character) return;
+    updateCharacter(character.id, { sentToDesigner: true });
+    setShowSendModal(false);
+    showToast({
+      title: `"${character.name}" sent to designer`,
+      href: "/writer/notifications",
+      actionLabel: "View notifications",
+    });
+  }
+
+  function handleCharacterEdited(update: Partial<Character>) {
+    // Only notify if the designer already has this character.
+    if (!character?.sentToDesigner) return;
+
+    // Build a diff of the fields that actually changed.
+    const TRACKED: Array<keyof Character> = [
+      "name", "role", "description", "bio", "occupation",
+      "origin", "affiliation", "traits", "keyTraits", "arcSummary",
+    ];
+    const diff: Record<string, { before: unknown; after: unknown }> = {};
+    for (const key of TRACKED) {
+      const before = character[key];
+      const after  = update[key as keyof typeof update];
+      if (after !== undefined && JSON.stringify(before) !== JSON.stringify(after)) {
+        diff[key] = { before, after };
+      }
+    }
+    if (Object.keys(diff).length === 0) return; // no visual-relevant fields changed
+
+    const activeProjectId =
+      typeof window !== "undefined"
+        ? (localStorage.getItem("resonance:activeProject") ?? undefined)
+        : undefined;
+
+    createNotification({
+      recipient:   "designer",
+      sender:      "writer",
+      type:        "character-updated",
+      title:       `Character updated: ${character.name}`,
+      message:     `The writer updated details for ${character.name}. Please review the changes.`,
+      severity:    "warning",
+      characterId: character.id,
+      projectId:   activeProjectId,
+      payload: {
+        characterName: character.name,
+        diff,
+      },
+    }).catch(console.error);
   }
 
   // Save notes on blur
@@ -472,6 +667,21 @@ export default function CharacterDetail({
           Back to Characters
         </Link>
         <div className="flex items-center gap-3">
+          {/* Send to Designer */}
+          {alreadySent ? (
+            <span className="flex items-center gap-2 rounded-full border border-violet-3/30 px-4 py-2 text-sm text-ink/40 cursor-not-allowed select-none">
+              <Palette className="h-3.5 w-3.5" />
+              Sent to Designer
+            </span>
+          ) : (
+            <button
+              onClick={() => setShowSendModal(true)}
+              className="flex items-center gap-2 rounded-full border border-violet-3/30 px-4 py-2 text-sm text-violet-2 transition-colors hover:border-violet-2/60 hover:bg-violet-2/5"
+            >
+              <Palette className="h-3.5 w-3.5" />
+              Send to Designer
+            </button>
+          )}
           <button
             onClick={() => setShowEdit(true)}
             className="flex items-center gap-2 rounded-full border border-gold-3/30 px-4 py-2 text-sm text-ink transition-colors hover:border-gold-2/60 hover:text-gold-1"
@@ -736,6 +946,7 @@ export default function CharacterDetail({
         <EditCharacterModal
           character={character}
           onClose={() => setShowEdit(false)}
+          onSaved={handleCharacterEdited}
         />
       )}
       {showDelete && (
@@ -747,6 +958,13 @@ export default function CharacterDetail({
       )}
       {showAddChar && (
         <NewCharacterModal onClose={() => setShowAddChar(false)} />
+      )}
+      {showSendModal && (
+        <SendToDesignerModal
+          character={character}
+          onClose={() => setShowSendModal(false)}
+          onSent={handleSentToDesigner}
+        />
       )}
     </div>
   );

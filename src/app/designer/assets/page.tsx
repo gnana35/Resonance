@@ -24,6 +24,7 @@ import {
 } from "react";
 import Link from "next/link";
 import {
+  CheckCircle2,
   Download,
   File,
   FileAudio,
@@ -31,6 +32,7 @@ import {
   FileVideo,
   PenTool,
   Search,
+  Share2,
   Trash2,
   Upload,
   X,
@@ -42,8 +44,10 @@ import {
   renameAsset,
   subscribeAssets,
   uploadAsset,
+  shareAssetWithWriter,
+  reshareAssetWithWriter,
   type AssetRecord,
-} from "@/lib/assets";
+} from "@/lib/assetLibrary";
 import {
   DesignerProvider,
   useDesigner,
@@ -170,13 +174,47 @@ function CardActions({
   onRename,
   onDownload,
   onDelete,
+  onShare,
+  shared,
+  needsRevision,
 }: {
-  onRename: () => void;
-  onDownload: () => void;
-  onDelete: () => void;
+  onRename:       () => void;
+  onDownload:     () => void;
+  onDelete:       () => void;
+  onShare?:       () => void;
+  shared?:        boolean;
+  needsRevision?: boolean;
 }) {
+  // needsRevision = writer requested changes; share button means "send updated artwork"
+  const shareDisabled  = shared && !needsRevision;
+  const shareTitle     = needsRevision
+    ? "Send updated artwork to writer"
+    : shared
+    ? "Already shared with writer"
+    : "Share with Writer";
+  const shareAriaLabel = needsRevision ? "Send updated artwork" : shareTitle;
+
   return (
     <div className="flex items-center gap-0.5">
+      {onShare && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onShare(); }}
+          aria-label={shareAriaLabel}
+          title={shareTitle}
+          disabled={shareDisabled}
+          className={`rounded p-1 transition-colors ${
+            shareDisabled
+              ? "cursor-not-allowed text-emerald-400/60"
+              : needsRevision
+              ? "text-amber-400/70 hover:bg-amber-400/10 hover:text-amber-300"
+              : "text-ink/40 hover:bg-violet-2/10 hover:text-violet-2"
+          }`}
+        >
+          {shareDisabled
+            ? <CheckCircle2 className="h-3.5 w-3.5" />
+            : <Share2 className="h-3.5 w-3.5" />}
+        </button>
+      )}
       <button
         onClick={(e) => { e.stopPropagation(); onRename(); }}
         aria-label="Rename"
@@ -225,13 +263,16 @@ function CreatedCard({
   inUseBy,
   onRename,
   onDelete,
+  onShare,
 }: {
   record: AssetRecord;
   inUseBy: string[];
   onRename: (id: string, name: string) => void;
   onDelete: (record: AssetRecord, inUseBy: string[]) => void;
+  onShare:  (record: AssetRecord) => void;
 }) {
   const [renaming, setRenaming] = useState(false);
+  const isShared = record.shareStatus === "shared";
 
   return (
     <div className="group rounded-xl border border-violet-3/20 bg-bg-1 transition-colors hover:border-violet-2/30">
@@ -249,6 +290,16 @@ function CreatedCard({
         ) : (
           <div className="flex h-full w-full items-center justify-center">
             <PenTool className="h-10 w-10 text-violet-3/40" />
+          </div>
+        )}
+        {/* Shared badge */}
+        {isShared && (
+          <div
+            className="absolute right-1.5 top-1.5 flex items-center gap-1 rounded-full bg-bg-0/90 px-1.5 py-0.5"
+            title={record.sharedAt ? `Shared ${formatAssetDate(record.sharedAt)}` : "Shared with writer"}
+          >
+            <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+            <span className="text-[9px] text-emerald-400">Shared</span>
           </div>
         )}
       </div>
@@ -271,6 +322,9 @@ function CreatedCard({
             onRename={() => setRenaming(true)}
             onDownload={() => downloadRecord(record)}
             onDelete={() => onDelete(record, inUseBy)}
+            onShare={() => onShare(record)}
+            shared={isShared}
+            needsRevision={record.validationStatus === "needs_revision"}
           />
         </div>
       </div>
@@ -285,14 +339,17 @@ function UploadedCard({
   inUseBy,
   onRename,
   onDelete,
+  onShare,
 }: {
   record: AssetRecord;
   inUseBy: string[];
   onRename: (id: string, name: string) => void;
   onDelete: (record: AssetRecord, inUseBy: string[]) => void;
+  onShare:  (record: AssetRecord) => void;
 }) {
   const [renaming, setRenaming] = useState(false);
-  const isImg = record.mimeType.startsWith("image/");
+  const isImg    = record.mimeType.startsWith("image/");
+  const isShared = record.shareStatus === "shared";
 
   return (
     <div className="group rounded-xl border border-violet-3/20 bg-bg-1 transition-colors hover:border-violet-2/30">
@@ -307,6 +364,16 @@ function UploadedCard({
             <span className="rounded bg-violet-3/20 px-1.5 py-0.5 text-[10px] font-medium uppercase text-ink/50">
               {mimeLabel(record.mimeType)}
             </span>
+          </div>
+        )}
+        {/* Shared badge */}
+        {isShared && (
+          <div
+            className="absolute right-1.5 top-1.5 flex items-center gap-1 rounded-full bg-bg-0/90 px-1.5 py-0.5"
+            title={record.sharedAt ? `Shared ${formatAssetDate(record.sharedAt)}` : "Shared with writer"}
+          >
+            <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+            <span className="text-[9px] text-emerald-400">Shared</span>
           </div>
         )}
       </div>
@@ -329,6 +396,9 @@ function UploadedCard({
             onRename={() => setRenaming(true)}
             onDownload={() => downloadRecord(record)}
             onDelete={() => onDelete(record, inUseBy)}
+            onShare={() => onShare(record)}
+            shared={isShared}
+            needsRevision={record.validationStatus === "needs_revision"}
           />
         </div>
       </div>
@@ -421,6 +491,14 @@ function AssetsPageBody() {
     if (!deleteTarget) return;
     deleteAsset(deleteTarget.record).catch(console.error);
     setDeleteTarget(null);
+  }
+  function handleShare(record: AssetRecord) {
+    // If writer already requested revisions, this becomes "artwork-updated".
+    if (record.validationStatus === "needs_revision") {
+      reshareAssetWithWriter(record).catch(console.error);
+    } else {
+      shareAssetWithWriter(record).catch(console.error);
+    }
   }
 
   /* ─── render ──────────────────────────────────────────────────────────── */
@@ -526,6 +604,7 @@ function AssetsPageBody() {
                     inUseBy={inUseMap.get(record.id) ?? []}
                     onRename={handleRename}
                     onDelete={handleDelete}
+                    onShare={handleShare}
                   />
                 ))}
               </div>
@@ -590,6 +669,7 @@ function AssetsPageBody() {
                     inUseBy={inUseMap.get(record.id) ?? []}
                     onRename={handleRename}
                     onDelete={handleDelete}
+                    onShare={handleShare}
                   />
                 ))}
               </div>

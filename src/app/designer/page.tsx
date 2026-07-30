@@ -48,7 +48,7 @@ import {
   saveCreatedAsset,
   updateCreatedAsset,
   linkDesignToAsset,
-} from "@/lib/assets";
+} from "@/lib/assetLibrary";
 
 /* ────────────────────────────────────────────────────────────────────────── */
 /*  New Design modal                                                          */

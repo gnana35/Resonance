@@ -1,0 +1,113 @@
+-- =============================================================================
+-- docs/schema.sql — REFERENCE ONLY
+-- =============================================================================
+-- The authoritative, runnable schema is supabase/schema.sql at the repo root.
+-- Paste that file into the Supabase SQL Editor (it is safe to re-run).
+--
+-- This file documents the full intended column layout for each table, for
+-- quick reference without opening the dashboard.
+-- =============================================================================
+
+-- ─── projects ─────────────────────────────────────────────────────────────────
+-- id          uuid pk
+-- title       text not null
+-- description text
+-- status      text not null default 'active'
+-- created_at  timestamptz not null default now()
+-- updated_at  timestamptz not null default now()
+
+-- ─── characters ───────────────────────────────────────────────────────────────
+-- id          uuid pk
+-- project_id  uuid not null references projects(id) on delete cascade
+-- name        text not null
+-- role        text
+-- description text
+-- traits      jsonb not null default '{}'::jsonb
+-- created_at  timestamptz not null default now()
+-- updated_at  timestamptz not null default now()
+
+-- ─── assets ───────────────────────────────────────────────────────────────────
+-- id               uuid pk
+-- project_id       uuid references projects(id) on delete cascade
+-- character_id     uuid references characters(id) on delete set null
+-- name             text not null
+-- description      text
+-- mime_type        text not null default 'application/octet-stream'
+-- source           text not null default 'uploaded' check (... 'created','uploaded')
+-- preview_url      text
+-- storage_path     text
+-- design_id        text   -- NOT uuid: designs live in DesignerContext
+--                        -- (localStorage) with ids like "1785333975123-a3f9k2"
+-- share_status     text not null default 'not_shared' check (... 'not_shared','shared')
+-- shared_at        timestamptz
+-- validation_status text not null default 'pending'
+--                  check (... 'pending','approved','needs_revision')
+-- validated_at     timestamptz
+-- validation_note  text
+-- created_at       timestamptz not null default now()
+-- updated_at       timestamptz not null default now()
+
+-- ─── notifications ────────────────────────────────────────────────────────────
+-- id           uuid pk
+-- project_id   uuid references projects(id) on delete cascade
+-- asset_id     uuid references assets(id) on delete cascade
+-- character_id uuid references characters(id) on delete set null
+-- recipient    text not null check (... 'writer','designer')
+-- sender       text not null check (... 'writer','designer','system')
+-- type         text not null
+--   Writer  → Designer : character-request | character-updated | scene-request
+--                        | worldbuilding-request | revision-request
+--   Designer → Writer  : character-design-complete | scene-art-complete
+--                        | asset-shared | artwork-updated
+--   System             : ai-validation-alert
+-- title        text not null
+-- message      text not null
+-- payload      jsonb not null default '{}'::jsonb
+-- status       text not null default 'unread'
+--              check (... 'unread','read','accepted','revision-requested')
+-- severity     text not null default 'info'
+--              check (... 'info','success','warning','alert')
+-- parent_id    uuid references notifications(id) on delete set null
+-- created_at   timestamptz not null default now()
+-- updated_at   timestamptz not null default now()
+--
+-- Indexes: (recipient, status), (parent_id)
+
+-- ─── notification_preferences ─────────────────────────────────────────────────
+-- id         uuid pk
+-- persona    text not null unique check (... 'writer','designer')
+-- in_app     boolean not null default true
+-- desktop    boolean not null default false
+-- mobile     boolean not null default false
+--   NOTE: mobile push (service worker + Web Push + VAPID) is NOT implemented.
+--         The column persists the preference; delivery is a TODO.
+-- events     jsonb not null default '{}'::jsonb
+--   keys: research-complete | image-generation-complete |
+--         historical-validation-complete | asset-shared |
+--         revision-requested | design-accepted | design-rejected
+-- updated_at timestamptz not null default now()
+
+-- =============================================================================
+-- ⚠  SECURITY: RLS is OFF for this hackathon build.
+-- The anon key in the browser bundle grants full read/write on every table.
+-- Before shipping to real users, enable RLS and add policies:
+--
+--   alter table public.projects                 enable row level security;
+--   alter table public.characters               enable row level security;
+--   alter table public.assets                   enable row level security;
+--   alter table public.notifications            enable row level security;
+--   alter table public.notification_preferences enable row level security;
+-- =============================================================================
+
+-- =============================================================================
+-- Storage
+-- =============================================================================
+-- A Storage bucket named `assets` is required, and must be PUBLIC (the code
+-- uses getPublicUrl, which returns a non-working URL on a private bucket).
+--
+-- storage.objects ALWAYS has RLS enabled, independent of the bucket's
+-- public/private toggle. "Public" only opens READS — anonymous writes need
+-- explicit policies or uploads fail with:
+--     new row violates row-level security policy
+-- See the storage policy block at the end of supabase/schema.sql.
+-- =============================================================================

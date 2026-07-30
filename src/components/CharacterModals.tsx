@@ -230,9 +230,11 @@ const EDIT_TABS: EditTab[] = ["Profile", "Overview", "Relationships", "Arc", "No
 export function EditCharacterModal({
   character,
   onClose,
+  onSaved,
 }: {
   character: Character;
   onClose: () => void;
+  onSaved?: (update: Partial<Character>) => void;
 }) {
   const { updateCharacter, lockField, allCharacters } = useCharacters();
   const isDraft = character.isDraft;
@@ -314,6 +316,7 @@ export function EditCharacterModal({
     };
 
     updateCharacter(character.id, update);
+    onSaved?.(update);
 
     // Lock every field the writer touched
     for (const field of edited) {

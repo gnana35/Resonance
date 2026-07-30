@@ -24,6 +24,7 @@ import {
   Globe,
   Info,
   Lock,
+  Palette,
   RefreshCw,
   Sparkles,
   Unlock,
@@ -37,6 +38,7 @@ import {
   RELATIONSHIP_STYLES,
 } from "@/data/world";
 import LocationsMap from "@/components/LocationsMap";
+import { createNotification } from "@/lib/notifications";
 
 /* ════════════════════════════════════════════════════════════════════════════
    SUB-TABS
@@ -125,6 +127,7 @@ function DetailPanel({
   onOpenChapter,
   onConfirmRel,
   onDismissRel,
+  onRequestDesign,
 }: {
   entity: WorldEntity;
   relationships: WorldRelationship[];
@@ -138,6 +141,7 @@ function DetailPanel({
   onOpenChapter: (chapterId: string) => void;
   onConfirmRel: (id: string) => void;
   onDismissRel: (id: string) => void;
+  onRequestDesign?: (entity: WorldEntity) => void;
 }) {
   const style = ENTITY_KIND_STYLES[entity.kind];
   const connected = relationships.filter(
@@ -345,6 +349,19 @@ function DetailPanel({
             </button>
           )}
         </div>
+
+        {/* Request worldbuilding design from designer */}
+        {onRequestDesign && (
+          <div className="border-t border-gold-3/15 pt-3">
+            <button
+              onClick={() => onRequestDesign(entity)}
+              className="flex items-center gap-1.5 rounded-full border border-violet-3/30 px-3 py-1.5 text-xs text-violet-2 transition-colors hover:border-violet-2/50 hover:bg-violet-2/5"
+            >
+              <Palette className="h-3.5 w-3.5" />
+              Request Design
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -742,6 +759,28 @@ function WorldMapTab({ onOpenChapter }: { onOpenChapter?: (chapterId: string) =>
   const [activeKinds, setActiveKinds] = useState<Set<GraphEntityKind>>(new Set(ALL_KINDS));
   const [showLegend, setShowLegend] = useState(false);
 
+  const activeProjectId =
+    typeof window !== "undefined"
+      ? (localStorage.getItem("resonance:activeProject") ?? undefined)
+      : undefined;
+
+  function handleRequestDesign(entity: WorldEntity) {
+    createNotification({
+      recipient:  "designer",
+      sender:     "writer",
+      type:       "worldbuilding-request",
+      title:      `Worldbuilding request: ${entity.label}`,
+      message:    `Please create visual design assets for "${entity.label}".`,
+      severity:   "info",
+      projectId:  activeProjectId,
+      payload: {
+        entityKind:        entity.kind,
+        entityLabel:       entity.label,
+        entityDescription: entity.writerNote ?? entity.description ?? "",
+      },
+    }).catch(console.error);
+  }
+
   const selectedEntity = entities.find((e) => e.id === selectedId) ?? null;
 
   const allKindsActive = activeKinds.size === ALL_KINDS.length;
@@ -869,6 +908,7 @@ function WorldMapTab({ onOpenChapter }: { onOpenChapter?: (chapterId: string) =>
                 onOpenChapter={onOpenChapter ?? (() => {})}
                 onConfirmRel={confirmRelationship}
                 onDismissRel={dismissRelationship}
+                onRequestDesign={handleRequestDesign}
               />
             ) : (
               <div className="flex flex-1 items-center justify-center rounded-2xl border border-gold-3/20 bg-bg-1 p-6 text-center text-sm text-ink/30">
