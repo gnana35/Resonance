@@ -215,16 +215,22 @@ function ChapterRow({
   onOpen,
   onDelete,
   onRename,
+  onReorder,
   startEditing,
 }: {
   chapter: Chapter;
   onOpen: () => void;
   onDelete: () => void;
   onRename: (title: string) => void;
+  /** Drop `draggedId` onto this chapter to reorder. */
+  onReorder?: (draggedId: string, targetId: string) => void;
   /** True when this row was just created — immediately enter rename mode */
   startEditing?: boolean;
 }) {
   const [renaming, setRenaming] = useState(!!startEditing);
+  // "over" drives the drop indicator; "dragging" dims the row being moved.
+  const [dragOver, setDragOver] = useState(false);
+  const [dragging, setDragging] = useState(false);
 
   function commitRename(val: string) {
     onRename(val);
@@ -249,7 +255,37 @@ function ChapterRow({
   }
 
   return (
-    <div className="group flex items-center gap-2 rounded-lg border border-gold-3/15 bg-bg-0/40 px-3 py-2.5 transition-colors hover:border-gold-3/30 hover:bg-bg-0/70">
+    <div
+      // The whole row is the drag source; the grip is the visual affordance.
+      // Rename is inline text editing, so dragging is disabled while renaming
+      // or the input cannot be selected with the mouse.
+      draggable={!renaming}
+      onDragStart={(e) => {
+        e.dataTransfer.setData("text/plain", chapter.id);
+        e.dataTransfer.effectAllowed = "move";
+        setDragging(true);
+      }}
+      onDragEnd={() => { setDragging(false); setDragOver(false); }}
+      onDragOver={(e) => {
+        e.preventDefault();               // required, or drop never fires
+        e.dataTransfer.dropEffect = "move";
+        setDragOver(true);
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragOver(false);
+        const draggedId = e.dataTransfer.getData("text/plain");
+        if (draggedId && draggedId !== chapter.id) onReorder?.(draggedId, chapter.id);
+      }}
+      className={`group flex items-center gap-2 rounded-lg border px-3 py-2.5 transition-colors ${
+        dragging
+          ? "border-gold-3/15 bg-bg-0/40 opacity-40"
+          : dragOver
+          ? "border-gold-2/70 bg-gold-2/10"
+          : "border-gold-3/15 bg-bg-0/40 hover:border-gold-3/30 hover:bg-bg-0/70"
+      }`}
+    >
       <GripVertical className="h-4 w-4 shrink-0 cursor-grab text-ink/20 opacity-0 transition-opacity group-hover:opacity-100 active:cursor-grabbing" />
       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-gold-2" />
       {renaming ? (
@@ -308,6 +344,8 @@ function PartRow({
   onChapterOpen,
   onChapterDelete,
   onChapterRename,
+  onChapterReorder,
+  onChapterMoveToPart,
   startEditing,
   newChapterId,
 }: {
@@ -321,10 +359,14 @@ function PartRow({
   onChapterOpen: (chapterId: string) => void;
   onChapterDelete: (chapterId: string) => void;
   onChapterRename: (chapterId: string, title: string) => void;
+  onChapterReorder: (draggedId: string, targetId: string) => void;
+  /** Drop a chapter on the part header to move it into this part. */
+  onChapterMoveToPart: (draggedId: string, partId: string) => void;
   startEditing?: boolean;
   newChapterId: string | null;
 }) {
   const [renaming, setRenaming] = useState(!!startEditing);
+  const [dropOver, setDropOver] = useState(false);
 
   function commitRename(val: string) {
     onRename(val);
@@ -334,7 +376,19 @@ function PartRow({
   return (
     <div className="ml-4 border-l border-violet-3/20 pl-3">
       {/* Part header */}
-      <div className="group flex items-center gap-2 rounded-lg border border-violet-3/20 bg-bg-1/60 px-3 py-2.5">
+      <div
+        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDropOver(true); }}
+        onDragLeave={() => setDropOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDropOver(false);
+          const draggedId = e.dataTransfer.getData("text/plain");
+          if (draggedId) onChapterMoveToPart(draggedId, part.id);
+        }}
+        className={`group flex items-center gap-2 rounded-lg border px-3 py-2.5 transition-colors ${
+          dropOver ? "border-violet-2/70 bg-violet-2/10" : "border-violet-3/20 bg-bg-1/60"
+        }`}
+      >
         <button
           onClick={(e) => { e.stopPropagation(); onToggle(); }}
           aria-label="Toggle part"
@@ -402,6 +456,7 @@ function PartRow({
                 onOpen={() => onChapterOpen(ch.id)}
                 onDelete={() => onChapterDelete(ch.id)}
                 onRename={(t) => onChapterRename(ch.id, t)}
+                onReorder={onChapterReorder}
                 startEditing={ch.id === newChapterId}
               />
             ))
@@ -439,6 +494,8 @@ function ProjectRow({
   onPartRename,
   onChapterDelete,
   onChapterRename,
+  onChapterReorder,
+  onChapterMoveToPart,
   newPartId,
   newChapterId,
 }: {
@@ -458,6 +515,8 @@ function ProjectRow({
   onPartRename: (partId: string, title: string) => void;
   onChapterDelete: (chapterId: string) => void;
   onChapterRename: (chapterId: string, title: string) => void;
+  onChapterReorder: (draggedId: string, targetId: string) => void;
+  onChapterMoveToPart: (draggedId: string, partId: string) => void;
   newPartId: string | null;
   newChapterId: string | null;
 }) {
@@ -536,6 +595,8 @@ function ProjectRow({
                 onChapterOpen={onChapterOpen}
                 onChapterDelete={onChapterDelete}
                 onChapterRename={onChapterRename}
+                onChapterReorder={onChapterReorder}
+                onChapterMoveToPart={onChapterMoveToPart}
                 startEditing={node.part.id === newPartId}
                 newChapterId={newChapterId}
               />
@@ -546,6 +607,7 @@ function ProjectRow({
                 onOpen={() => onChapterOpen(node.chapter.id)}
                 onDelete={() => onChapterDelete(node.chapter.id)}
                 onRename={(t) => onChapterRename(node.chapter.id, t)}
+                onReorder={onChapterReorder}
                 startEditing={node.chapter.id === newChapterId}
               />
             ),
@@ -1005,6 +1067,113 @@ export default function WriterPage() {
     setChapters((prev) => prev.map((c) => c.id === chapterId ? { ...c, title, updatedAt: now } : c));
   }
 
+  /**
+   * Reorder a chapter by dropping it onto another.
+   *
+   * Works within a container AND across them: dropping a chapter onto one in a
+   * different Part (or at top level) reassigns its partId and slots it in at
+   * the drop position. Only cross-PROJECT moves are refused.
+   *
+   * `order` is rewritten densely (0..n-1) for the affected group so no gaps or
+   * duplicates accumulate over repeated drags.
+   */
+  function reorderChapter(draggedId: string, targetId: string) {
+    if (draggedId === targetId) return;
+
+    setChapters((prev) => {
+      const dragged = prev.find((c) => c.id === draggedId);
+      const target  = prev.find((c) => c.id === targetId);
+      if (!dragged || !target) return prev;
+      // Moving between projects is not a reorder — ignore it.
+      if (dragged.projectId !== target.projectId) return prev;
+
+      const fromPart = dragged.partId ?? null;
+      const toPart   = target.partId ?? null;
+      const now      = nowISO();
+
+      const groupOf = (partId: string | null) =>
+        prev
+          .filter((c) => c.projectId === dragged.projectId && (c.partId ?? null) === partId)
+          .sort((a, b) => a.order - b.order);
+
+      // Same container: straight reorder.
+      if (fromPart === toPart) {
+        const siblings = groupOf(fromPart);
+        const from = siblings.findIndex((c) => c.id === draggedId);
+        const to   = siblings.findIndex((c) => c.id === targetId);
+        if (from === -1 || to === -1) return prev;
+
+        const next = [...siblings];
+        next.splice(to, 0, next.splice(from, 1)[0]);
+
+        const orderById = new Map(next.map((c, i) => [c.id, i]));
+        return prev.map((c) =>
+          orderById.has(c.id) ? { ...c, order: orderById.get(c.id)!, updatedAt: now } : c,
+        );
+      }
+
+      // Cross-container: remove from the source group, insert into the target
+      // group at the drop position, and renumber BOTH so neither is left with
+      // gaps. partId is reassigned so the chapter actually lives in the new part.
+      const source = groupOf(fromPart).filter((c) => c.id !== draggedId);
+      const destin = groupOf(toPart);
+      const to     = destin.findIndex((c) => c.id === targetId);
+      if (to === -1) return prev;
+
+      const moved = { ...dragged, partId: toPart, updatedAt: now };
+      const nextDest = [...destin];
+      nextDest.splice(to, 0, moved);
+
+      const orderById = new Map<string, number>();
+      source.forEach((c, i)   => orderById.set(c.id, i));
+      nextDest.forEach((c, i) => orderById.set(c.id, i));
+
+      return prev.map((c) => {
+        if (c.id === draggedId) {
+          return { ...moved, order: orderById.get(draggedId) ?? 0 };
+        }
+        return orderById.has(c.id)
+          ? { ...c, order: orderById.get(c.id)!, updatedAt: now }
+          : c;
+      });
+    });
+  }
+
+  /**
+   * Move a chapter into a Part by dropping it on the part header.
+   * This is the only route into an EMPTY part, which has no chapter to drop on.
+   * Appended to the end of that part's list.
+   */
+  function moveChapterToPart(draggedId: string, partId: string) {
+    setChapters((prev) => {
+      const dragged = prev.find((c) => c.id === draggedId);
+      if (!dragged || (dragged.partId ?? null) === partId) return prev;
+
+      const now = nowISO();
+      const destCount = prev.filter(
+        (c) => c.projectId === dragged.projectId && (c.partId ?? null) === partId,
+      ).length;
+
+      // Close the gap left in the source group.
+      const source = prev
+        .filter((c) =>
+          c.projectId === dragged.projectId &&
+          (c.partId ?? null) === (dragged.partId ?? null) &&
+          c.id !== draggedId)
+        .sort((a, b) => a.order - b.order);
+      const sourceOrder = new Map(source.map((c, i) => [c.id, i]));
+
+      return prev.map((c) => {
+        if (c.id === draggedId) {
+          return { ...c, partId, order: destCount, updatedAt: now };
+        }
+        return sourceOrder.has(c.id)
+          ? { ...c, order: sourceOrder.get(c.id)!, updatedAt: now }
+          : c;
+      });
+    });
+  }
+
   /* ── Clear "new" flags once the inline editor mounts ────────────────── */
   // We use a ref to track whether the flag was consumed rather than a timeout,
   // so the flag survives the state-update + render cycle.
@@ -1233,6 +1402,8 @@ export default function WriterPage() {
                 if (ch) setDeleteTarget({ kind: "chapter", id: ch.id, title: ch.title });
               }}
               onChapterRename={renameChapter}
+              onChapterReorder={reorderChapter}
+              onChapterMoveToPart={moveChapterToPart}
               newPartId={newPartId}
               newChapterId={newChapterId}
             />

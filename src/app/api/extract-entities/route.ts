@@ -201,7 +201,7 @@ ENTITIES
 8. Confidence 0.9–1.0 = text names it directly; 0.6–0.89 = named but brief;
    below 0.6 = mentioned very obliquely. Only return entities with confidence ≥ 0.5.
 
-9. Attach an excerpt (verbatim passage ≤ 160 chars) that directly establishes
+9. Attach an excerpt (verbatim passage ≤ 80 chars) that directly establishes
    this entity. The excerpt must appear in the chapter text.
 
 CHARACTER FIELDS (for character-kind entities only)
@@ -236,7 +236,7 @@ RELATIONSHIPS
     - family        → two characters are related by blood or formal kinship
     - knows         → two characters are acquainted (use when no stronger type fits)
 
-14. Attach a supporting excerpt (≤ 160 chars) to each relationship.
+14. Attach a supporting excerpt (≤ 80 chars) to each relationship.
 
 15. Only return what you can point to in the text. Return nothing invented.
 
@@ -273,18 +273,50 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   // Truncate very long chapters — Gemini flash context window is 1M tokens,
   // but we cap at ~24k chars (~6k tokens) to keep latency reasonable per chapter.
-  const cappedText = text.length > 24_000 ? text.slice(0, 24_000) + "\n[truncated]" : text;
+  // Groq's free tier caps TOKENS per minute (6000), not just requests. At
+  // ~4 chars/token a 24k-char chapter is ~6000 tokens on its own — one chapter
+  // would consume the entire minute. 8k chars (~2000 tokens) leaves room for
+  // the system prompt and known-entity list, so ~2 chapters fit per minute.
+  // Override with EXTRACT_TEXT_LIMIT if you move to a higher tier.
+  const LIMIT = Number(process.env.EXTRACT_TEXT_LIMIT ?? 8_000);
+  const cappedText = text.length > LIMIT ? text.slice(0, LIMIT) + "\n[truncated]" : text;
 
   const systemPrompt = buildPrompt(chapterTitle, knownEntities);
 
   try {
-    const raw = await generateJSON({
-      system:      systemPrompt,
-      user:        `\n\nCHAPTER TEXT:\n\n${cappedText}`,
-      schema:      RESPONSE_SCHEMA,
-      temperature: 0.1,          // near-deterministic for extraction
-      maxTokens:   4096,
-    });
+    // Groq counts the REQUESTED completion budget against tokens-per-minute, so
+    // a 4096 reservation was ~70% of every call while the chapter text was under
+    // 10%. Start small and only pay more when a chapter actually needs it.
+    const baseTokens = Number(process.env.EXTRACT_MAX_TOKENS ?? 1500);
+
+    /**
+     * A dense chapter can exhaust the budget mid-object, and Groq rejects the
+     * truncated result with 400 "Failed to generate JSON". That is a SIZE
+     * problem, not a prompt problem — so retry once with double the budget
+     * rather than raising it for every chapter and re-creating the TPM issue.
+     */
+    async function extract(maxTokens: number): Promise<string> {
+      return generateJSON({
+        system:      systemPrompt,
+        user:        `\n\nCHAPTER TEXT:\n\n${cappedText}`,
+        schema:      RESPONSE_SCHEMA,
+        temperature: 0.1,        // near-deterministic for extraction
+        maxTokens,
+      });
+    }
+
+    let raw: string;
+    try {
+      raw = await extract(baseTokens);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const truncated = /failed to generate json|json_validate_failed/i.test(msg);
+      if (!truncated) throw err;
+      console.warn(
+        `[extract-entities] "${chapterTitle}" exceeded ${baseTokens} tokens — retrying at ${baseTokens * 2}`,
+      );
+      raw = await extract(baseTokens * 2);
+    }
 
     let parsed: ExtractionResult;
     try {

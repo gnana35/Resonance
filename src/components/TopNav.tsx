@@ -39,10 +39,17 @@ export function TopNav() {
 
   return (
     <nav className="flex items-center justify-between border-b border-gold-3/20 px-6 py-4 md:px-10">
-      <Link href="/" className="flex items-center gap-3">
-        <div className="flex h-9 w-9 items-center justify-center rounded-full border border-gold-2/60 font-display text-sm text-gold-1">
-          R
-        </div>
+      {/* Goes to the persona chooser, not the marketing hero — a signed-in user
+          clicking the logo wants to switch between Writer and Designer. */}
+      <Link href="/onboarding" className="flex items-center gap-3">
+        <Image
+          src="/assets/shared/logo.png"
+          alt="Resonance"
+          width={36}
+          height={36}
+          className="h-9 w-9 rounded-full object-cover"
+          priority
+        />
         <span className="font-display text-lg tracking-[0.3em] text-gold-1">
           RESONANCE
         </span>

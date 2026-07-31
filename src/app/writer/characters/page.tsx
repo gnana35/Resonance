@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { LayoutGrid, List, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useCharacters } from "@/context/CharactersContext";
@@ -30,14 +30,25 @@ export default function CharactersList() {
 
   const isRunning = deriveStatus === "running" || worldDeriveStatus === "running";
 
-  const hasContent = (() => {
+  /**
+   * Whether the manuscript has enough text to scan.
+   *
+   * Read in an EFFECT, not during render. localStorage does not exist on the
+   * server, so an inline read returned false during SSR and true on the client,
+   * which changed this button's disabled/title attributes and swapped the empty
+   * state — a hydration mismatch. Starting false and filling in after mount
+   * makes the first client render match the server exactly.
+   */
+  const [hasContent, setHasContent] = useState(false);
+
+  useEffect(() => {
     try {
       const raw = localStorage.getItem("resonance:chapters");
-      if (!raw) return false;
+      if (!raw) return;
       const all = JSON.parse(raw) as Array<{ content: string }>;
-      return all.some((c) => (c.content ?? "").length > 30);
-    } catch { return false; }
-  })();
+      setHasContent(all.some((c) => (c.content ?? "").length > 30));
+    } catch { /* unreadable storage — leave as false */ }
+  }, [characters]);
 
   const filtered = characters.filter((c) => {
     if (filter === "established") return !c.isDraft;

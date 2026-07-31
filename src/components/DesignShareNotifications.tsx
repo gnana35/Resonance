@@ -38,6 +38,8 @@ import {
 import {
   markNotifRead,
   postAssetChatMessage,
+  subscribeUnreadChat,
+  markAssetChatSeen,
   sendDesignFeedback,
   setValidationStatus,
   subscribeAssets,
@@ -199,16 +201,52 @@ function NotifCard({
 }) {
   const [panel, setPanel] = useState<DesignFeedbackKind | null>(null);
   const [showChat, setShowChat] = useState(false);
+  const [unread, setUnread] = useState(0);
   const decided = status !== "pending";
+
+  // Unread replies from the designer on THIS asset.
+  useEffect(
+    () =>
+      subscribeUnreadChat("writer", ({ assetIds }) =>
+        setUnread(assetIds.includes(notif.assetId) ? 1 : 0),
+      ),
+    [notif.assetId],
+  );
+
+  // The Conversations feed above can ask us to open a specific thread.
+  useEffect(() => {
+    function onOpen(e: Event) {
+      const { assetId } = (e as CustomEvent<{ assetId: string }>).detail ?? {};
+      if (assetId === notif.assetId) setShowChat(true);
+    }
+    window.addEventListener("resonance:open-asset-chat", onOpen);
+    return () => window.removeEventListener("resonance:open-asset-chat", onOpen);
+  }, [notif.assetId]);
+
+  // Opening the thread clears its unread marker.
+  useEffect(() => {
+    if (showChat) markAssetChatSeen(notif.assetId, "writer");
+  }, [showChat, notif.assetId]);
 
   return (
     <div
-      className={`group flex gap-4 rounded-xl border p-4 transition-colors ${
-        decided
+      id={`design-share-${notif.assetId}`}
+      className={`group relative flex gap-4 rounded-xl border p-4 transition-colors ${
+        unread > 0
+          ? "border-gold-2/60 bg-gold-2/10"
+          : decided
           ? "border-violet-3/15 bg-bg-1/60"
           : "border-gold-2/25 bg-gold-2/5"
       }`}
     >
+      {unread > 0 && (
+        <span
+          title="Unread reply from the designer"
+          className="absolute -left-1 -top-1 flex items-center gap-1 rounded-full bg-gold-2 px-2 py-0.5 text-[10px] font-medium text-bg-0"
+        >
+          New reply
+        </span>
+      )}
       {/* Thumbnail */}
       <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-violet-3/20 bg-bg-0">
         {notif.previewUrl ? (

@@ -338,6 +338,10 @@ function CreatedCard({
 }) {
   const [renaming, setRenaming] = useState(false);
   const isShared = record.shareStatus === "shared";
+  // The writer asked for changes (or rejected) — re-open sharing so the
+  // reworked design can be sent back.
+  const needsResend =
+    record.validationStatus === "needs_revision" || record.validationStatus === "rejected";
   const needsAttention =
     record.validationStatus === "needs_revision" || record.validationStatus === "rejected";
 
@@ -410,17 +414,28 @@ function CreatedCard({
           <ValidationBadge status={record.validationStatus} />
         </div>
 
-        {/* Share with Writer button */}
+        {/* Share with Writer button.
+            Once the writer asks for changes or rejects a design, the asset goes
+            to needs_revision / rejected — the designer must be able to send the
+            reworked version. Sharing again resets validationStatus to pending
+            and raises a fresh notification, so the loop can repeat. */}
         <button
           onClick={(e) => { e.stopPropagation(); onShare(record); }}
-          disabled={isShared}
+          disabled={isShared && !needsResend}
           className={`mt-1 flex w-full items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
-            isShared
+            needsResend
+              ? "border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
+              : isShared
               ? "cursor-default border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
               : "border-violet-3/30 text-ink/60 hover:border-violet-2/50 hover:bg-violet-2/5 hover:text-violet-2"
           }`}
         >
-          {isShared ? (
+          {needsResend ? (
+            <>
+              <Send className="h-3.5 w-3.5" />
+              Send Updated Design
+            </>
+          ) : isShared ? (
             <>
               <CheckCircle2 className="h-3.5 w-3.5" />
               Shared with Writer
@@ -632,7 +647,14 @@ function AssetsPageBody() {
 
   /* ── share with writer ── */
   async function handleShare(record: AssetRecord) {
-    if (record.shareStatus === "shared" || sharing === record.id) return;
+    // Re-sharing IS allowed once the writer has asked for changes or rejected
+    // the design — that is how the reworked version gets back to them. Only
+    // block a duplicate share of an already-approved/pending design, and any
+    // double-click while a share is in flight.
+    const awaitingRework =
+      record.validationStatus === "needs_revision" ||
+      record.validationStatus === "rejected";
+    if ((record.shareStatus === "shared" && !awaitingRework) || sharing === record.id) return;
     setSharing(record.id);
     try {
       await shareAssetWithWriter(record);

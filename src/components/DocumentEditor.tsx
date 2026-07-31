@@ -83,6 +83,66 @@ export const DocumentEditor = forwardRef<
     updateCounts();
   }
 
+  /**
+   * Sanitise pasted content.
+   *
+   * Google Docs, Word and Notion put fully-styled HTML on the clipboard —
+   * inline `background-color: white`, hard-coded dark `color`, and their own
+   * font stacks. Dropped into a contenteditable as-is, that paints white blocks
+   * over this editor's dark theme and pins text to the source's colours.
+   *
+   * So keep the STRUCTURE the writer cares about (paragraphs, headings, bold,
+   * italic, lists, blockquotes) and drop everything presentational, letting the
+   * editor's own styles apply.
+   */
+  function handlePaste(e: React.ClipboardEvent<HTMLDivElement>) {
+    if (readOnly) return;
+    e.preventDefault();
+
+    const html  = e.clipboardData.getData("text/html");
+    const plain = e.clipboardData.getData("text/plain");
+
+    // No HTML flavour (plain-text source) — insert verbatim.
+    if (!html) {
+      document.execCommand("insertText", false, plain);
+      updateCounts();
+      return;
+    }
+
+    // Structural tags worth keeping. Everything else is unwrapped to its text.
+    const ALLOWED = new Set([
+      "P", "BR", "DIV",
+      "H1", "H2", "H3",
+      "B", "STRONG", "I", "EM", "U", "S", "STRIKE",
+      "UL", "OL", "LI",
+      "BLOCKQUOTE", "CODE", "PRE",
+    ]);
+
+    const doc = new DOMParser().parseFromString(html, "text/html");
+
+    // Google Docs wraps everything in <b style="font-weight:normal"> — keeping
+    // it would bold the entire paste.
+    doc.body.querySelectorAll("b").forEach((b) => {
+      if (/font-weight:\s*(normal|400)/i.test(b.getAttribute("style") ?? "")) {
+        b.replaceWith(...Array.from(b.childNodes));
+      }
+    });
+
+    doc.body.querySelectorAll("*").forEach((el) => {
+      if (!ALLOWED.has(el.tagName)) {
+        // Unwrap rather than delete, so the text survives.
+        el.replaceWith(...Array.from(el.childNodes));
+        return;
+      }
+      // Strip every attribute — style, class, colour, font, dir, id.
+      for (const attr of Array.from(el.attributes)) el.removeAttribute(attr.name);
+    });
+
+    const clean = doc.body.innerHTML.trim();
+    document.execCommand("insertHTML", false, clean || plain);
+    updateCounts();
+  }
+
   function applyBlock(tag: string, label: string) {
     if (readOnly) return;
     editorRef.current?.focus();
@@ -230,6 +290,7 @@ export const DocumentEditor = forwardRef<
         contentEditable={!readOnly}
         suppressContentEditableWarning
         onInput={updateCounts}
+        onPaste={handlePaste}
         data-placeholder="Start writing your story..."
         className={[
           "min-h-[420px] px-6 py-6 text-ink/90 leading-[1.5] focus:outline-none",

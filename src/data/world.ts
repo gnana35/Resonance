@@ -123,6 +123,12 @@ export type ProjectWorldState = {
   contradictions: WorldContradiction[];
   /** fingerprint of the manuscript when last analysed */
   lastFingerprint?: string;
+  /**
+   * Per-chapter content hashes from the last successful derivation.
+   * Lets runDerivation() re-extract ONLY the chapters whose text changed,
+   * instead of every chapter on every save.
+   */
+  chapterHashes?: Record<string, string>;
   lastAnalysedAt?: number;
 };
 

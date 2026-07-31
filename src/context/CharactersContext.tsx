@@ -47,6 +47,78 @@ import { syncPushBackground } from "@/lib/cloudSync";
 const STORAGE_KEY = "resonance:characters:v2";
 const VIEW_KEY    = "resonance:characters:view";
 
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ARC SHAPE
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Arc values are GENERATED, not derived from the manuscript.
+ *
+ * Leads climb; everyone else gets a varied rise-and-fall so the Story Graph
+ * shows genuinely different shapes instead of every character tracing the same
+ * line. Replace arcValueFor() with a model-supplied score when per-chapter
+ * sentiment extraction lands.
+ *
+ * Seeded from the character id so a given character always draws the SAME
+ * curve. Math.random() would reshuffle on every render and save, making the
+ * chart flicker and never agree with itself between reloads.
+ */
+
+function seedFrom(str: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+/** Deterministic 0–1 from a seed + step. Mulberry32. */
+function seededUnit(seed: number, step: number): number {
+  let t = (seed + step * 0x6d2b79f5) >>> 0;
+  t = Math.imul(t ^ (t >>> 15), 1 | t);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+
+/** Leads are protagonists — their arc only ever climbs. */
+function isLeadRole(role?: string): boolean {
+  return /protagonist|main|lead|hero/i.test(role ?? "");
+}
+
+/**
+ * Arc value (1–10) for a character at chapter `index` of `total`.
+ *
+ * Lead:  monotonically non-decreasing, ~2 → ~9, with small varied steps so it
+ *        is not a perfectly straight line.
+ * Other: a seeded random walk that may dip, recover or decline.
+ */
+function arcValueFor(
+  characterId: string,
+  role: string | undefined,
+  index: number,
+  total: number,
+): number {
+  const seed = seedFrom(characterId);
+  const frac = total > 1 ? index / (total - 1) : 0;
+
+  if (isLeadRole(role)) {
+    // Rising baseline plus a small positive jitter — never dips.
+    const base   = 2 + frac * 6;
+    const jitter = seededUnit(seed, index) * 1.2;
+    return Math.max(1, Math.min(10, Math.round(base + jitter)));
+  }
+
+  // Everyone else: walk from a seeded start, stepping -3..+3 per chapter.
+  let v = 3 + Math.round(seededUnit(seed, 0) * 4);   // start 3–7
+  for (let i = 1; i <= index; i++) {
+    v += Math.round((seededUnit(seed, i) - 0.45) * 6);
+    v = Math.max(1, Math.min(10, v));
+  }
+  return v;
+}
+
 function loadCharacters(): Character[] {
   if (typeof window === "undefined") return [];
   try {
@@ -181,10 +253,13 @@ function upsertCharacterFromEntity(
     const existingArc = existing.arcPoints ?? [];
     const hasThisChap = existingArc.some((p) => p.chapterId === chapterId);
     if (!hasThisChap) {
-      const orderFraction = allChapters.length > 1
-        ? (allChapters.findIndex((c) => c.id === chapterId) / (allChapters.length - 1))
-        : 0;
-      const value = Math.round(2 + orderFraction * 6);
+      const chapterIndex = allChapters.findIndex((c) => c.id === chapterId);
+      const value = arcValueFor(
+        existing.id,
+        existing.roleInStory ?? existing.role,
+        Math.max(chapterIndex, 0),
+        allChapters.length,
+      );
       update.arcPoints = [
         ...existingArc,
         { chapterId, chapterTitle, value, evidence: chapterEvidence.excerpt },
@@ -199,13 +274,16 @@ function upsertCharacterFromEntity(
 
   // Build initial arc points for all chapters (this chapter gets actual data,
   // others get placeholder 0)
+  // Seed the arc from the id we are about to assign, so the curve is stable.
+  const newId = uid();
+  const newRole = entity.role?.trim() || "Character";
+
   const arcPoints: ArcPoint[] = allChapters.map((ch, i) => {
     if (ch.id === chapterId) {
-      const orderFraction = allChapters.length > 1 ? i / (allChapters.length - 1) : 0;
       return {
         chapterId: ch.id,
         chapterTitle: ch.title,
-        value: Math.round(2 + orderFraction * 6),
+        value: arcValueFor(newId, newRole, i, allChapters.length),
         evidence: chapterEvidence.excerpt,
       };
     }
@@ -213,10 +291,10 @@ function upsertCharacterFromEntity(
   });
 
   const newChar: Character = {
-    id:           uid(),
+    id:           newId,
     projectId,
     name,
-    role:         entity.role?.trim() || "Character",
+    role:         newRole,
     description:  entity.summary ?? "",
     bio:          entity.summary || undefined,
     traits:       entity.traits ?? [],

@@ -12,12 +12,15 @@ import {
 } from "lucide-react";
 import { useConsistency } from "@/context/ConsistencyContext";
 import { subscribeUnreadChat } from "@/lib/assets";
+import { subscribeDesignRequests } from "@/lib/designRequests";
 
 const NAV_ITEMS = [
   { href: "/designer",              label: "Designer's Space", icon: Palette,       exact: true },
-  { href: "/designer/assets",       label: "Assets",           icon: Folder,        chatBadge: true },
+  { href: "/designer/assets",       label: "Assets",           icon: Folder                    },
   { href: "/designer/research",     label: "Research",         icon: FlaskConical              },
   { href: "/designer/notifications",label: "Notifications",    icon: Bell,          badge: true },
+// Unread chat replies count toward Notifications, not Assets: the writer's
+// replies are notifications, and the notifications page is where they are read.
   { href: "/designer/settings",     label: "Settings",         icon: Settings                  },
 ];
 
@@ -26,8 +29,20 @@ export function DesignerSidebar() {
   const { pendingCount } = useConsistency();
   const [chatUnread, setChatUnread] = useState(0);
 
+  const [requestUnread, setRequestUnread] = useState(0);
+
   useEffect(
     () => subscribeUnreadChat("designer", ({ count }) => setChatUnread(count)),
+    [],
+  );
+
+  // Character design requests from the writer. These were missing from the
+  // badge, so a new request arrived with no sidebar indication at all.
+  useEffect(
+    () =>
+      subscribeDesignRequests((rows) =>
+        setRequestUnread(rows.filter((r) => r.status === "open" && !r.read).length),
+      ),
     [],
   );
 
@@ -39,7 +54,8 @@ export function DesignerSidebar() {
             ? pathname === item.href
             : pathname.startsWith(item.href);
           const Icon = item.icon;
-          const count = item.badge ? pendingCount : item.chatBadge ? chatUnread : 0;
+          // Notifications carries BOTH consistency items and unread chat replies.
+          const count = item.badge ? pendingCount + chatUnread + requestUnread : 0;
           return (
             <Link
               key={item.href}

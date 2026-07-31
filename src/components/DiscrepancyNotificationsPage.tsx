@@ -661,7 +661,14 @@ export function DiscrepancyNotificationsPage({
   const accentFg   = accentClass === "gold" ? "text-gold-2" : "text-violet-2";
   const tabActive  = accentClass === "gold" ? "bg-gold-2 text-bg-0" : "bg-violet-2 text-bg-0";
 
-  if (!hydrated) {
+  // `hydrated` belongs to ConsistencyContext, but the collaboration inbox
+  // (design requests, writer feedback) is stored separately and is ready
+  // immediately. Blocking on ConsistencyContext hid those entirely whenever it
+  // stayed unhydrated — e.g. before a project is selected. So only show the
+  // loading state when there is genuinely nothing to display.
+  const hasCollabItems = designRequests.length > 0 || designFeedback.length > 0;
+
+  if (!hydrated && !hasCollabItems) {
     return (
       <div className="flex items-center justify-center py-24 text-ink/30 text-sm">
         Loading…

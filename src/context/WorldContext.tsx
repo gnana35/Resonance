@@ -258,16 +258,41 @@ async function extractChapter(
   text:          string,
   knownEntities: Array<{ label: string; kind: string; aliases: string[] }>,
 ): Promise<ExtractionResult> {
-  const res = await fetch("/api/extract-entities", {
-    method:  "POST",
-    headers: { "Content-Type": "application/json" },
-    body:    JSON.stringify({ chapterId, chapterTitle, text, knownEntities }),
-  });
-  if (!res.ok) {
+  // Groq's free tier limits TOKENS PER MINUTE, so a multi-chapter pass reliably
+  // trips a 429 partway through. The error carries "try again in 56.08s" — wait
+  // that long and retry instead of dropping the chapter, which previously left
+  // permanent holes in the world and stopped arcs from ever building.
+  const MAX_ATTEMPTS = 3;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const res = await fetch("/api/extract-entities", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ chapterId, chapterTitle, text, knownEntities }),
+    });
+
+    if (res.ok) return res.json() as Promise<ExtractionResult>;
+
     const err = await res.json().catch(() => ({ error: res.statusText })) as { error?: string };
-    throw new Error(`Extraction failed for "${chapterTitle}": ${err.error ?? res.statusText}`);
+    const detail = err.error ?? res.statusText;
+    const isRateLimit = res.status === 503 || /429|rate.?limit/i.test(detail);
+
+    if (isRateLimit && attempt < MAX_ATTEMPTS) {
+      // Prefer the server's own "try again in Ns"; fall back to 20s * attempt.
+      const m = /try again in ([\d.]+)\s*s/i.exec(detail);
+      const waitMs = m ? Math.ceil(parseFloat(m[1]) * 1000) + 1_000 : attempt * 20_000;
+      console.info(
+        `[WorldContext] rate limited on "${chapterTitle}" — retrying in ${Math.round(waitMs / 1000)}s ` +
+        `(attempt ${attempt}/${MAX_ATTEMPTS})`,
+      );
+      await new Promise((r) => setTimeout(r, waitMs));
+      continue;
+    }
+
+    throw new Error(`Extraction failed for "${chapterTitle}": ${detail}`);
   }
-  return res.json() as Promise<ExtractionResult>;
+
+  throw new Error(`Extraction failed for "${chapterTitle}": rate limit persisted after ${MAX_ATTEMPTS} attempts`);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -657,9 +682,24 @@ export function WorldProvider({
             aliases: [] as string[],
           }));
 
+      // Per-chapter cache. A single manuscript-wide fingerprint meant editing
+      // ONE chapter re-extracted ALL of them, so an N-chapter project cost N
+      // API calls on every save and blew straight through the rate limit.
+      // Only chapters whose text actually changed are sent to the model.
+      const prevHashes: Record<string, string> = existing.chapterHashes ?? {};
+      const nextHashes: Record<string, string> = { ...prevHashes };
+      let skipped = 0;
+
       for (const ch of chapters) {
         const text = htmlToText(ch.content);
         if (!text.trim()) continue;
+
+        const hash = manuscriptFingerprint([{ ...ch, content: text }]);
+        if (prevHashes[ch.id] === hash && existing.entities.length > 0) {
+          skipped++;
+          continue;
+        }
+        nextHashes[ch.id] = hash;
 
         try {
           const result = await extractChapter(
@@ -729,8 +769,12 @@ export function WorldProvider({
       const withFingerprint: ProjectWorldState = {
         ...finalState,
         lastFingerprint: fp,
+        chapterHashes:   nextHashes,
         lastAnalysedAt:  Date.now(),
       };
+      if (skipped > 0) {
+        console.info(`[WorldContext] reused ${skipped} unchanged chapter(s) — no API call`);
+      }
 
       commitState(withFingerprint);
 

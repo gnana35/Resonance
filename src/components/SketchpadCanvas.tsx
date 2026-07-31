@@ -179,7 +179,13 @@ function renderLayerToCtx(
   // Placed images
   for (const pi of layer.data.placedImages) {
     const img = loadedImages.get(pi.url);
-    if (img) {
+    // An image that is still decoding, or that failed to load, must be skipped:
+    // drawImage throws InvalidStateError on a "broken" HTMLImageElement, which
+    // would abort the whole composite mid-stroke.
+    //
+    // A broken image reports complete === true with naturalWidth === 0, so both
+    // checks are needed — `if (img)` alone is not enough.
+    if (img && img.complete && img.naturalWidth > 0) {
       ctx.save();
       ctx.globalAlpha *= pi.opacity / 100;
       ctx.drawImage(img, pi.x, pi.y, pi.w, pi.h);
@@ -280,10 +286,24 @@ export const SketchpadCanvas = forwardRef<SketchpadHandle, SketchpadCanvasProps>
       for (const url of allUrls) {
         if (!loadedImages.current.has(url)) {
           const img = new Image();
-          img.crossOrigin = "anonymous";
+          // Only set crossOrigin for remote URLs. Applying it to a data: URL is
+          // harmless, but a remote host without permissive CORS headers will
+          // fail the load and leave a broken element behind.
+          if (!url.startsWith("data:")) img.crossOrigin = "anonymous";
           img.onload = () => { loadedImages.current.set(url, img); redraw(); };
+          // Without this, a failed load leaves a permanently broken element in
+          // the cache and every subsequent redraw throws InvalidStateError.
+          // Drop it instead so the layer simply renders without that image.
+          img.onerror = () => {
+            loadedImages.current.delete(url);
+            console.warn("[SketchpadCanvas] image failed to load, skipping:", url);
+          };
           img.src = url;
-          loadedImages.current.set(url, img); // placeholder
+          // Cached immediately as a placeholder so concurrent redraws don't
+          // start a second load for the same url. renderLayerToCtx checks
+          // complete/naturalWidth before drawing, so a not-yet-loaded entry is
+          // skipped rather than thrown on.
+          loadedImages.current.set(url, img);
         }
       }
     }, [activeLayers]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -367,7 +387,13 @@ export const SketchpadCanvas = forwardRef<SketchpadHandle, SketchpadCanvasProps>
           return;
         }
         const img = new Image();
-        img.crossOrigin = "anonymous";
+        if (!url.startsWith("data:")) img.crossOrigin = "anonymous";
+        // Remote asset URLs can 404 or be blocked by CORS. Surface that
+        // instead of appearing to do nothing.
+        img.onerror = () => {
+          loadedImages.current.delete(url);
+          onBlockedDraw?.("That image could not be loaded.");
+        };
         img.onload = () => {
           loadedImages.current.set(url, img);
           pushHistory();
@@ -666,7 +692,13 @@ export const SketchpadCanvas = forwardRef<SketchpadHandle, SketchpadCanvasProps>
           y: (e.clientY - canvasRef.current!.getBoundingClientRect().top) * (H / canvasRef.current!.getBoundingClientRect().height) / (zoom / 100) - panY / (zoom / 100),
         };
         const img = new Image();
-        img.crossOrigin = "anonymous";
+        if (!url.startsWith("data:")) img.crossOrigin = "anonymous";
+        // Remote asset URLs can 404 or be blocked by CORS. Surface that
+        // instead of appearing to do nothing.
+        img.onerror = () => {
+          loadedImages.current.delete(url);
+          onBlockedDraw?.("That image could not be loaded.");
+        };
         img.onload = () => {
           loadedImages.current.set(url, img);
           pushHistory();

@@ -1,23 +1,35 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { ArrowRight, Sparkle } from "lucide-react";
 import { auth } from "@/lib/firebase";
+import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
 import { LoginModal } from "@/components/LoginModal";
 
 export default function Home() {
   const [loginOpen, setLoginOpen] = useState(false);
+  // Firebase restores the session ASYNCHRONOUSLY. Reading auth.currentUser
+  // synchronously returns null for the first moment after any page load, so an
+  // already-signed-in user was shown the login modal again — which is what made
+  // switching between Writer and Designer look like it required a re-login.
+  // Track the real state instead, and treat "still checking" as not-yet-known.
+  const [user, setUser] = useState<FirebaseUser | null>(auth.currentUser);
+  const [authReady, setAuthReady] = useState(false);
   const router = useRouter();
 
+  useEffect(() => onAuthStateChanged(auth, (u) => {
+    setUser(u);
+    setAuthReady(true);
+  }), []);
+
   function handleBeginResonance() {
-    const user = auth.currentUser;
-    if (user) {
-      router.push("/onboarding");
-    } else {
-      setLoginOpen(true);
-    }
+    // Don't prompt before Firebase has reported in, or we'd ask a signed-in
+    // user to log in again.
+    if (!authReady) return;
+    if (user) router.push("/onboarding");
+    else setLoginOpen(true);
   }
 
   return (
