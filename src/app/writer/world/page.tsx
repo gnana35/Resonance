@@ -21,15 +21,19 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Edit2,
   Globe,
   Info,
   Lock,
+  Network,
   RefreshCw,
   Sparkles,
+  Trash2,
   Unlock,
   X,
   Zap,
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useWorld } from "@/context/WorldContext";
 import type { WorldEntity, WorldRelationship } from "@/data/world";
 import {
@@ -37,12 +41,23 @@ import {
   RELATIONSHIP_STYLES,
 } from "@/data/world";
 import LocationsMap from "@/components/LocationsMap";
+import {
+  listGraph,
+  addNode,
+  updateNode,
+  removeNode,
+  subscribeGraph,
+  KIND_COLORS,
+  type GraphNode,
+  type NodeKind,
+  type GraphData,
+} from "@/lib/storyGraph";
 
 /* ════════════════════════════════════════════════════════════════════════════
    SUB-TABS
    ════════════════════════════════════════════════════════════════════════════ */
 
-const SUB_TABS = ["World Map", "Locations"] as const;
+const SUB_TABS = ["World Map", "Locations", "Story Graph"] as const;
 type SubTab = (typeof SUB_TABS)[number];
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -490,16 +505,18 @@ function DeriveBanner({
   onRefresh: () => void;
   lastAnalysedAt: number | undefined;
 }) {
-  const [visible, setVisible] = useState(false);
+  // hidden: set true by a timer, reset false by effect cleanup when status changes.
+  const [hidden, setHidden] = useState(false);
 
   useEffect(() => {
-    if (status === "running") setVisible(true);
-    if (status === "done") {
-      setVisible(true);
-      const t = setTimeout(() => setVisible(false), 7000);
-      return () => clearTimeout(t);
-    }
+    if (status !== "done") return;
+    // Schedule dismissal — setState only ever inside async callback or cleanup.
+    const t = setTimeout(() => setHidden(true), 7000);
+    return () => { clearTimeout(t); setHidden(false); };
   }, [status]);
+
+  // Show while running; show after done until the timer fires.
+  const visible = status === "running" || (status === "done" && !hidden);
 
   if (!visible && status === "idle") return null;
 
@@ -890,6 +907,539 @@ function WorldMapTab({ onOpenChapter }: { onOpenChapter?: (chapterId: string) =>
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
+   STORY GRAPH — NODE CARD (ReactFlow custom node)
+   ════════════════════════════════════════════════════════════════════════════ */
+
+function StoryNodeCard({ data, selected }: NodeProps<Node<GraphNode>>) {
+  const color = KIND_COLORS[data.kind] ?? "#9ca3af";
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.7 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ type: "spring", stiffness: 280, damping: 22 }}
+      className="w-48 rounded-xl border bg-bg-1 p-3"
+      style={{
+        borderColor: selected ? color : `${color}55`,
+        boxShadow: selected ? `0 0 0 1.5px ${color}, 0 0 18px ${color}40` : undefined,
+      }}
+    >
+      <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
+      <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
+      <div className="flex items-center gap-2">
+        <div
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-[10px] font-bold uppercase"
+          style={{ backgroundColor: `${color}22`, color }}
+        >
+          {data.kind[0]}
+        </div>
+        <p className="truncate text-sm font-medium text-ink">{data.label}</p>
+      </div>
+      {data.summary && (
+        <p className="mt-1.5 line-clamp-2 text-[11px] leading-snug text-ink/45">
+          {data.summary}
+        </p>
+      )}
+      <p className="mt-1.5 text-[10px] capitalize text-ink/30">{data.kind}</p>
+    </motion.div>
+  );
+}
+
+const storyNodeTypes = { storyNode: StoryNodeCard };
+
+/* ════════════════════════════════════════════════════════════════════════════
+   STORY GRAPH — NODE DETAIL PANEL
+   ════════════════════════════════════════════════════════════════════════════ */
+
+function StoryNodeDetail({
+  node,
+  onClose,
+  onSave,
+  onRemove,
+}: {
+  node: GraphNode;
+  onClose: () => void;
+  onSave: (id: string, label: string, summary: string) => void;
+  onRemove: (id: string) => void;
+}) {
+  const [label, setLabel] = useState(node.label);
+  const [summary, setSummary] = useState(node.summary ?? "");
+  const [editing, setEditing] = useState(false);
+  const color = KIND_COLORS[node.kind] ?? "#9ca3af";
+
+  function handleSave() {
+    onSave(node.id, label.trim() || node.label, summary.trim());
+    setEditing(false);
+  }
+
+  return (
+    <div className="flex flex-col gap-0 overflow-hidden rounded-2xl border border-gold-3/25 bg-bg-1">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-gold-3/20 px-4 py-3">
+        <div className="flex items-center gap-2">
+          <span
+            className="flex h-6 w-6 items-center justify-center rounded text-[10px] font-bold uppercase"
+            style={{ backgroundColor: `${color}22`, color }}
+          >
+            {node.kind[0]}
+          </span>
+          <span className="text-xs font-semibold uppercase tracking-wider text-ink/50">
+            {node.kind}
+          </span>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setEditing((v) => !v)}
+            className="rounded-md p-1.5 text-ink/40 hover:bg-ink/8 hover:text-ink transition-colors"
+            title="Edit"
+          >
+            <Edit2 className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={() => onRemove(node.id)}
+            className="rounded-md p-1.5 text-red-400/50 hover:bg-red-500/10 hover:text-red-400 transition-colors"
+            title="Remove node"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={onClose}
+            className="rounded-md p-1.5 text-ink/40 hover:bg-ink/8 hover:text-ink transition-colors"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3 p-4">
+        {editing ? (
+          <>
+            <div>
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-ink/40">
+                Label
+              </label>
+              <input
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                className="w-full rounded-lg border border-gold-3/30 bg-bg-0 px-3 py-2 text-sm text-ink focus:border-gold-2/50 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-ink/40">
+                Summary
+              </label>
+              <textarea
+                value={summary}
+                onChange={(e) => setSummary(e.target.value)}
+                rows={3}
+                className="w-full resize-none rounded-lg border border-gold-3/30 bg-bg-0 px-3 py-2 text-sm text-ink placeholder:text-ink/30 focus:border-gold-2/50 focus:outline-none"
+                placeholder="A brief description…"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={handleSave}
+                className="flex items-center gap-1.5 rounded-lg bg-gold-2 px-3 py-1.5 text-xs font-medium text-bg-0 hover:bg-gold-1 transition-colors"
+              >
+                <Check className="h-3 w-3" />
+                Save
+              </button>
+              <button
+                onClick={() => { setLabel(node.label); setSummary(node.summary ?? ""); setEditing(false); }}
+                className="rounded-lg border border-gold-3/30 px-3 py-1.5 text-xs text-ink/60 hover:text-ink transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="font-display text-lg text-ink">{node.label}</p>
+            {node.summary ? (
+              <p className="text-sm leading-relaxed text-ink/60">{node.summary}</p>
+            ) : (
+              <p className="text-sm italic text-ink/30">No summary yet — click ✏ to add one.</p>
+            )}
+            <p className="text-[11px] text-ink/30">
+              Added {new Date(node.created_at).toLocaleDateString()}
+            </p>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   STORY GRAPH — ADD NODE FORM
+   ════════════════════════════════════════════════════════════════════════════ */
+
+const ALL_NODE_KINDS: NodeKind[] = [
+  "character", "organization", "location", "object", "event", "story-arc",
+];
+
+function AddNodeForm({
+  projectId,
+  onAdded,
+  onCancel,
+}: {
+  projectId: string;
+  onAdded: () => void;
+  onCancel: () => void;
+}) {
+  const [label, setLabel] = useState("");
+  const [kind, setKind] = useState<NodeKind>("character");
+  const [summary, setSummary] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!label.trim()) return;
+    setSaving(true);
+    await addNode(projectId, kind, label.trim(), { summary: summary.trim() || undefined });
+    setSaving(false);
+    onAdded();
+  }
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className="flex flex-col gap-3 rounded-2xl border border-gold-3/25 bg-bg-1 p-4"
+    >
+      <p className="text-sm font-medium text-ink">Add node</p>
+      <div className="flex gap-2">
+        <input
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder="Name or label…"
+          required
+          className="flex-1 rounded-lg border border-gold-3/30 bg-bg-0 px-3 py-2 text-sm text-ink placeholder:text-ink/30 focus:border-gold-2/50 focus:outline-none"
+        />
+        <select
+          value={kind}
+          onChange={(e) => setKind(e.target.value as NodeKind)}
+          className="rounded-lg border border-gold-3/30 bg-bg-0 px-2 py-2 text-sm text-ink focus:border-gold-2/50 focus:outline-none"
+        >
+          {ALL_NODE_KINDS.map((k) => (
+            <option key={k} value={k}>{k}</option>
+          ))}
+        </select>
+      </div>
+      <textarea
+        value={summary}
+        onChange={(e) => setSummary(e.target.value)}
+        placeholder="Brief summary (optional)…"
+        rows={2}
+        className="resize-none rounded-lg border border-gold-3/30 bg-bg-0 px-3 py-2 text-sm text-ink placeholder:text-ink/30 focus:border-gold-2/50 focus:outline-none"
+      />
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          disabled={saving || !label.trim()}
+          className="flex items-center gap-1.5 rounded-lg bg-gold-2 px-3 py-1.5 text-xs font-medium text-bg-0 hover:bg-gold-1 disabled:opacity-50 transition-colors"
+        >
+          {saving ? "Adding…" : "Add"}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-lg border border-gold-3/30 px-3 py-1.5 text-xs text-ink/60 hover:text-ink transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   STORY GRAPH — INNER CANVAS (inside ReactFlowProvider)
+   ════════════════════════════════════════════════════════════════════════════ */
+
+function StoryGraphInner({
+  graphData,
+  selectedId,
+  onSelectNode,
+  onNodeDragStop,
+}: {
+  graphData: GraphData;
+  selectedId: string | null;
+  onSelectNode: (id: string | null) => void;
+  onNodeDragStop: (id: string, x: number, y: number) => void;
+}) {
+  const { fitView } = useReactFlow();
+  const prevCount = useRef(graphData.nodes.length);
+
+  const nodes = graphData.nodes.map((n) => ({
+    ...n,
+    selected: n.id === selectedId,
+  }));
+
+  // Fit view when nodes are first loaded or new nodes arrive
+  useEffect(() => {
+    if (graphData.nodes.length > 0 && graphData.nodes.length !== prevCount.current) {
+      prevCount.current = graphData.nodes.length;
+      setTimeout(() => fitView({ padding: 0.25, duration: 400 }), 80);
+    }
+  }, [graphData.nodes.length, fitView]);
+
+  return (
+    <ReactFlow
+      nodes={nodes}
+      edges={graphData.edges}
+      nodeTypes={storyNodeTypes}
+      onNodeClick={(_, node) => onSelectNode(node.id === selectedId ? null : node.id)}
+      onPaneClick={() => onSelectNode(null)}
+      onNodeDragStop={(_, node) => onNodeDragStop(node.id, node.position.x, node.position.y)}
+      fitView
+      proOptions={{ hideAttribution: true }}
+      colorMode="dark"
+    >
+      <Background color="#8a6a2f" gap={28} size={0.8} />
+      <Controls showInteractive={false} />
+    </ReactFlow>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   STORY GRAPH TAB
+   ════════════════════════════════════════════════════════════════════════════ */
+
+const KIND_FILTER_ALL = "all" as const;
+
+function StoryGraphTab() {
+  const resolvedProjectId: string = (() => {
+    if (typeof window === "undefined") return "";
+    return localStorage.getItem("resonance:activeProject") ?? "";
+  })();
+
+  const [graphData, setGraphData] = useState<GraphData>({ nodes: [], edges: [] });
+  // Start loading=true only when there is a project to fetch; otherwise start idle.
+  const [loading, setLoading] = useState(() => resolvedProjectId !== "");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [kindFilter, setKindFilter] = useState<NodeKind | typeof KIND_FILTER_ALL>(KIND_FILTER_ALL);
+  const [showAddForm, setShowAddForm] = useState(false);
+
+  // Fetch + subscribe — setState only ever called inside async callbacks, not inline.
+  useEffect(() => {
+    if (!resolvedProjectId) return;
+
+    let cancelled = false;
+
+    listGraph(resolvedProjectId).then((data) => {
+      if (!cancelled) {
+        setGraphData(data);
+        setLoading(false);
+      }
+    });
+
+    const unsub = subscribeGraph(resolvedProjectId, () => {
+      listGraph(resolvedProjectId).then((data) => {
+        if (!cancelled) setGraphData(data);
+      });
+    });
+
+    return () => { cancelled = true; unsub(); };
+  }, [resolvedProjectId]);
+
+  // Persist position on drag
+  const handleNodeDragStop = useCallback(async (id: string, x: number, y: number) => {
+    const node = graphData.nodes.find((n) => n.id === id);
+    if (!node) return;
+    const newMeta = { ...node.data.metadata, x, y };
+    // Optimistic update
+    setGraphData((prev) => ({
+      ...prev,
+      nodes: prev.nodes.map((n) =>
+        n.id === id ? { ...n, position: { x, y }, data: { ...n.data, metadata: newMeta } } : n
+      ),
+    }));
+    await updateNode(id, { metadata: newMeta });
+  }, [graphData.nodes]);
+
+  const handleSaveNode = useCallback(async (id: string, label: string, summary: string) => {
+    setGraphData((prev) => ({
+      ...prev,
+      nodes: prev.nodes.map((n) =>
+        n.id === id ? { ...n, data: { ...n.data, label, summary } } : n
+      ),
+    }));
+    await updateNode(id, { label, summary: summary || null });
+  }, []);
+
+  const handleRemoveNode = useCallback(async (id: string) => {
+    setGraphData((prev) => ({
+      ...prev,
+      nodes: prev.nodes.filter((n) => n.id !== id),
+      edges: prev.edges.filter((e) => e.source !== id && e.target !== id),
+    }));
+    setSelectedId(null);
+    await removeNode(id);
+  }, []);
+
+  const filteredGraph = useMemo<GraphData>(() => {
+    if (kindFilter === KIND_FILTER_ALL) return graphData;
+    const visibleIds = new Set(
+      graphData.nodes.filter((n) => n.data.kind === kindFilter).map((n) => n.id)
+    );
+    return {
+      nodes: graphData.nodes.filter((n) => visibleIds.has(n.id)),
+      edges: graphData.edges.filter((e) => visibleIds.has(e.source) && visibleIds.has(e.target)),
+    };
+  }, [graphData, kindFilter]);
+
+  const selectedNode = graphData.nodes.find((n) => n.id === selectedId)?.data ?? null;
+
+  const countByKind = useMemo(() => {
+    const c: Record<string, number> = {};
+    for (const n of graphData.nodes) c[n.data.kind] = (c[n.data.kind] ?? 0) + 1;
+    return c;
+  }, [graphData.nodes]);
+
+  if (!resolvedProjectId) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-center">
+        <Network className="h-14 w-14 text-ink/10" />
+        <p className="mt-5 font-display text-2xl text-ink/40">No active project</p>
+        <p className="mt-2 max-w-sm text-sm text-ink/40">
+          Select or create a project in the Writer&apos;s Space first.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4 pt-4">
+      {/* Filter + action bar */}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          onClick={() => setKindFilter(KIND_FILTER_ALL)}
+          className="rounded-full border px-3 py-1 text-xs font-medium transition-all"
+          style={
+            kindFilter === KIND_FILTER_ALL
+              ? { borderColor: "#d9a84e", backgroundColor: "rgba(217,168,78,0.10)", color: "#f7e7b8" }
+              : { borderColor: "rgba(138,106,47,0.4)", color: "rgba(207,214,230,0.45)" }
+          }
+        >
+          All
+          {graphData.nodes.length > 0 && (
+            <span className="ml-1.5 opacity-60">{graphData.nodes.length}</span>
+          )}
+        </button>
+        <span className="h-4 w-px bg-gold-3/25" />
+        {ALL_NODE_KINDS.map((k) => {
+          const color = KIND_COLORS[k];
+          const count = countByKind[k] ?? 0;
+          const active = kindFilter === k;
+          return (
+            <button
+              key={k}
+              onClick={() => setKindFilter(k)}
+              className="rounded-full border px-3 py-1 text-xs font-medium capitalize transition-all"
+              style={
+                active
+                  ? { borderColor: color, backgroundColor: `${color}20`, color }
+                  : { borderColor: `${color}40`, color: "rgba(207,214,230,0.5)" }
+              }
+            >
+              {k}
+              {count > 0 && <span className="ml-1.5 opacity-60">{count}</span>}
+            </button>
+          );
+        })}
+        <button
+          onClick={() => setShowAddForm((v) => !v)}
+          className="ml-auto flex items-center gap-1.5 rounded-lg border border-gold-3/30 px-3 py-1.5 text-xs text-gold-2 hover:border-gold-2 hover:text-gold-1 transition-colors"
+        >
+          + Add node
+        </button>
+      </div>
+
+      {/* Add form */}
+      <AnimatePresence>
+        {showAddForm && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <AddNodeForm
+              projectId={resolvedProjectId}
+              onAdded={() => setShowAddForm(false)}
+              onCancel={() => setShowAddForm(false)}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {loading ? (
+        <div className="flex h-[520px] items-center justify-center text-sm text-ink/30">
+          Loading graph…
+        </div>
+      ) : graphData.nodes.length === 0 ? (
+        <div className="flex h-[520px] flex-col items-center justify-center text-center">
+          <Network className="h-12 w-12 text-ink/10" />
+          <p className="mt-4 font-display text-xl text-ink/40">Story Graph is empty</p>
+          <p className="mt-2 max-w-xs text-sm text-ink/35">
+            Approve a notification to add the first node, or use the &ldquo;Add node&rdquo; button above.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_300px]">
+          {/* Canvas */}
+          <div className="h-[560px] overflow-hidden rounded-2xl border border-gold-3/25 bg-bg-1">
+            <ReactFlowProvider>
+              <StoryGraphInner
+                graphData={filteredGraph}
+                selectedId={selectedId}
+                onSelectNode={setSelectedId}
+                onNodeDragStop={handleNodeDragStop}
+              />
+            </ReactFlowProvider>
+          </div>
+
+          {/* Right column */}
+          <div className="flex flex-col gap-4">
+            <AnimatePresence mode="wait">
+              {selectedNode ? (
+                <motion.div
+                  key={selectedNode.id}
+                  initial={{ opacity: 0, x: 16 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 16 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <StoryNodeDetail
+                    node={selectedNode}
+                    onClose={() => setSelectedId(null)}
+                    onSave={handleSaveNode}
+                    onRemove={handleRemoveNode}
+                  />
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="empty"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="flex flex-1 items-center justify-center rounded-2xl border border-gold-3/20 bg-bg-1 p-8 text-center text-sm text-ink/30"
+                >
+                  <div>
+                    <Network className="mx-auto mb-3 h-8 w-8 text-ink/15" />
+                    Click any node to see its details
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
    PAGE ROOT
    ════════════════════════════════════════════════════════════════════════════ */
 
@@ -936,8 +1486,10 @@ export default function WorldPage() {
 
       {subTab === "World Map" ? (
         <WorldMapTab />
-      ) : (
+      ) : subTab === "Locations" ? (
         <LocationsMap />
+      ) : (
+        <StoryGraphTab />
       )}
     </div>
   );

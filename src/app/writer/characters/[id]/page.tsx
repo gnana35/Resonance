@@ -1,23 +1,20 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  Briefcase,
   ChevronLeft,
-  CircleDot,
   ExternalLink,
   Lock,
   LockOpen,
-  MapPin,
   Pencil,
   RefreshCw,
   Sparkles,
   Trash2,
-  Users,
 } from "lucide-react";
 import { useCharacters } from "@/context/CharactersContext";
+import { useWorld } from "@/context/WorldContext";
 import { CharacterAvatar } from "@/components/CharacterAvatar";
 import { DraftBadge } from "@/components/DraftBadge";
 import {
@@ -26,8 +23,10 @@ import {
   NewCharacterModal,
 } from "@/components/CharacterModals";
 import type { ArcPoint, Character, Evidence, LockableField } from "@/data/characters";
+import type { WorldEntity, WorldRelationship } from "@/data/world";
+import { ENTITY_KIND_STYLES } from "@/data/world";
 
-const TABS = ["Overview", "Role", "Relationships", "Arc", "Notes"] as const;
+const TABS = ["Profile", "Overview", "Relationships", "Arc", "Notes"] as const;
 type Tab = (typeof TABS)[number];
 
 /* ── Helpers ───────────────────────────────────────────────────────────── */
@@ -115,6 +114,39 @@ function FieldHeader({
       {evidence && !isLocked && (
         <EvidenceLink evidence={evidence} onOpen={onOpenEvidence} />
       )}
+    </div>
+  );
+}
+
+/* ── Profile field row (populated-only, with evidence link + lock) ──────── */
+
+function ProfileField({
+  label,
+  value,
+  field,
+  characterId,
+  isLocked,
+  evidence,
+  onOpenEvidence,
+}: {
+  label:           string;
+  value:           string;
+  field:           LockableField;
+  characterId:     string;
+  isLocked:        boolean;
+  evidence?:       Evidence;
+  onOpenEvidence?: (chapterId: string) => void;
+}) {
+  return (
+    <div>
+      <div className="flex items-center gap-1">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-ink/40">{label}</h3>
+        <LockToggle field={field} characterId={characterId} isLocked={isLocked} />
+        {evidence && !isLocked && (
+          <EvidenceLink evidence={evidence} onOpen={onOpenEvidence} />
+        )}
+      </div>
+      <p className="mt-1 text-sm text-ink/80">{value}</p>
     </div>
   );
 }
@@ -281,7 +313,6 @@ function ArcChart({
   arcPoints: ArcPoint[];
   character: Character;
 }) {
-  const { updateCharacter } = useCharacters();
   const [hovered, setHovered] = useState<number | null>(null);
 
   const nonZero = arcPoints.filter((p) => p.value > 0);
@@ -358,6 +389,215 @@ function ArcChart({
   );
 }
 
+
+/* ── Relationships tab — merges writer-set + world-derived connections ──── */
+
+function RelationshipsTab({
+  character,
+  allCharacters,
+  onShowAddChar,
+  worldEntities,
+  worldRelationships,
+}: {
+  character: Character;
+  allCharacters: Character[];
+  onShowAddChar: () => void;
+  worldEntities: WorldEntity[];
+  worldRelationships: WorldRelationship[];
+}) {
+  // Find the world entity that matches this character by name (case-insensitive)
+  const myEntity = useMemo(
+    () =>
+      worldEntities.find(
+        (e) => e.kind === "character" && e.label.toLowerCase() === character.name.toLowerCase(),
+      ),
+    [worldEntities, character.name],
+  );
+
+  // World-derived connections: all edges where this character is source or target.
+  // Split into character↔character (linkable) and character↔world (non-character entities).
+  // Deduplicate character links against manually-set character.relationships.
+  const { charConnections, worldNodeConnections } = useMemo(() => {
+    if (!myEntity) return { charConnections: [], worldNodeConnections: [] };
+
+    // Build a set of character IDs already in the manual relationships list so
+    // we don't show the same connection twice.
+    const manualCharIds = new Set(
+      (character.relationships ?? []).map((r) => r.characterId),
+    );
+
+    const charConnections: Array<{ rel: WorldRelationship; otherChar: Character; otherEntity: WorldEntity }> = [];
+    const worldNodeConnections: Array<{ rel: WorldRelationship; otherEntity: WorldEntity }> = [];
+
+    for (const r of worldRelationships) {
+      if (r.sourceId !== myEntity.id && r.targetId !== myEntity.id) continue;
+      const otherId = r.sourceId === myEntity.id ? r.targetId : r.sourceId;
+      const otherEntity = worldEntities.find((e) => e.id === otherId);
+      if (!otherEntity) continue;
+
+      if (otherEntity.kind === "character") {
+        const otherChar = allCharacters.find(
+          (c) => c.name.toLowerCase() === otherEntity.label.toLowerCase(),
+        );
+        // Only show if we have a character record and it's not already in manual list
+        if (otherChar && !manualCharIds.has(otherChar.id)) {
+          charConnections.push({ rel: r, otherChar, otherEntity });
+        }
+      } else {
+        // Location, faction, event, object, other — show as world node connection
+        worldNodeConnections.push({ rel: r, otherEntity });
+      }
+    }
+
+    return { charConnections, worldNodeConnections };
+  }, [myEntity, worldRelationships, worldEntities, allCharacters, character.relationships]);
+
+  const hasManual = (character.relationships?.length ?? 0) > 0;
+  const hasWorld  = charConnections.length > 0 || worldNodeConnections.length > 0;
+  const hasAny    = hasManual || hasWorld;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <h2 className="font-display text-xl text-gold-1">Relationships</h2>
+        <button
+          onClick={onShowAddChar}
+          className="flex items-center gap-1.5 rounded-full border border-gold-3/30 px-3 py-1.5 text-xs text-ink/60 hover:border-gold-2/50 hover:text-ink"
+        >
+          <Pencil className="h-3 w-3" />
+          Edit relationships
+        </button>
+      </div>
+
+      {/* Writer-set character relationships */}
+      {hasManual &&
+        character.relationships!.map((rel) => {
+          const other = allCharacters.find((c) => c.id === rel.characterId);
+          if (!other) return null;
+          return (
+            <Link
+              key={rel.characterId}
+              href={`/writer/characters/${other.id}`}
+              className="flex items-center gap-4 rounded-xl border border-gold-3/25 bg-bg-1 p-4 transition-colors hover:border-gold-2/50"
+            >
+              <CharacterAvatar
+                name={other.name}
+                avatarColor={other.avatarColor}
+                className="h-12 w-12 shrink-0 rounded-lg text-lg"
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-3">
+                  <p className="font-display text-base text-ink">{other.name}</p>
+                  <span className="rounded-full bg-gold-2/10 px-2.5 py-0.5 text-xs text-ink/60">
+                    {rel.relation}
+                  </span>
+                  {rel.proposed && (
+                    <span className="rounded-full bg-violet-3/30 px-2 py-0.5 text-xs text-violet-2">
+                      Proposed
+                    </span>
+                  )}
+                </div>
+                {rel.blurb && <p className="mt-1 text-sm text-ink/60">{rel.blurb}</p>}
+              </div>
+            </Link>
+          );
+        })
+      }
+
+      {/* World-derived character connections (same edges as the map) */}
+      {charConnections.length > 0 && (
+        <div className="flex flex-col gap-3">
+          {hasManual && (
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-ink/30">
+              Also detected in manuscript
+            </p>
+          )}
+          {charConnections.map(({ rel, otherChar, otherEntity }) => (
+            <Link
+              key={rel.id}
+              href={`/writer/characters/${otherChar.id}`}
+              className="flex items-center gap-4 rounded-xl border border-violet-3/20 bg-bg-1 p-4 transition-colors hover:border-violet-2/40"
+            >
+              <CharacterAvatar
+                name={otherChar.name}
+                avatarColor={otherChar.avatarColor}
+                className="h-12 w-12 shrink-0 rounded-lg text-lg"
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-3">
+                  <p className="font-display text-base text-ink">{otherChar.name}</p>
+                  <span className="rounded-full bg-violet-3/20 px-2.5 py-0.5 text-xs text-violet-2/80">
+                    {rel.label}
+                  </span>
+                </div>
+                {otherEntity.description && (
+                  <p className="mt-1 text-sm text-ink/50 line-clamp-1">{otherEntity.description}</p>
+                )}
+                {rel.evidence.length > 0 && rel.evidence[0].excerpt && (
+                  <p className="mt-1 text-xs italic text-ink/40 line-clamp-1">
+                    &ldquo;{rel.evidence[0].excerpt}&rdquo; — {rel.evidence[0].chapterTitle}
+                  </p>
+                )}
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
+
+      {/* World-node connections (locations, factions, events, objects) */}
+      {worldNodeConnections.length > 0 && (
+        <div className="flex flex-col gap-2">
+          {(hasManual || charConnections.length > 0) && (
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-ink/30">
+              World connections
+            </p>
+          )}
+          {worldNodeConnections.map(({ rel, otherEntity }) => {
+            const kindStyle = ENTITY_KIND_STYLES[otherEntity.kind];
+            return (
+              <div
+                key={rel.id}
+                className="flex items-start gap-3 rounded-xl border border-gold-3/15 bg-bg-1 p-4"
+              >
+                <div
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-xs font-bold"
+                  style={{ backgroundColor: `${kindStyle.color}18`, color: kindStyle.color }}
+                >
+                  {kindStyle.label[0]}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="font-display text-base text-ink">{otherEntity.label}</p>
+                    <span
+                      className="rounded-full px-2.5 py-0.5 text-xs"
+                      style={{ backgroundColor: `${kindStyle.color}18`, color: kindStyle.color }}
+                    >
+                      {rel.label}
+                    </span>
+                  </div>
+                  {otherEntity.description && (
+                    <p className="mt-1 text-sm text-ink/50 line-clamp-1">{otherEntity.description}</p>
+                  )}
+                  {rel.evidence.length > 0 && rel.evidence[0].excerpt && (
+                    <p className="mt-1 text-xs italic text-ink/40 line-clamp-1">
+                      &ldquo;{rel.evidence[0].excerpt}&rdquo; — {rel.evidence[0].chapterTitle}
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {!hasAny && (
+        <p className="text-ink/60">No relationships yet.</p>
+      )}
+    </div>
+  );
+}
+
+
 /* ── Main page ─────────────────────────────────────────────────────────── */
 
 export default function CharacterDetail({
@@ -377,13 +617,14 @@ export default function CharacterDetail({
     declinePromotion,
     onOpenChapterEvidence,
   } = useCharacters();
+  const { entities: worldEntities, relationships: worldRelationships } = useWorld();
 
   const character = characters.find((c) => c.id === id)
     ?? allCharacters.find((c) => c.id === id);
   const isDraft = character?.isDraft === true;
   const router = useRouter();
 
-  const [activeTab, setActiveTab] = useState<Tab>("Overview");
+  const [activeTab, setActiveTab] = useState<Tab>("Profile");
   const [notes, setNotes] = useState(character?.notes ?? "");
   const [showEdit, setShowEdit] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
@@ -499,32 +740,23 @@ export default function CharacterDetail({
           />
           <h1 className="mt-5 font-display text-3xl text-gold-1">{character.name}</h1>
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-ink/60">{character.role}</p>
+            {character.role && character.role !== "Character" && (
+              <p className="text-ink/60">{character.role}</p>
+            )}
             {isDraft && <DraftBadge />}
           </div>
 
-          <dl className="mt-5 flex flex-col gap-3 text-sm">
-            <MetaRow icon={Users}     label="Age"         value={character.age !== undefined ? character.age : "—"} />
-            <MetaRow icon={Briefcase} label="Occupation"  value={character.occupation ?? "—"} />
-            <MetaRow icon={MapPin}    label="Origin"      value={character.origin ?? "—"} />
-            <MetaRow icon={Users}     label="Affiliation" value={character.affiliation ?? "—"} />
-            <MetaRow icon={CircleDot} label="Status"      value={character.status ?? "—"} />
-          </dl>
-
           {character.traits.length > 0 && (
-            <>
-              <p className="mt-6 text-sm text-ink/70">Tags</p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {character.traits.map((trait) => (
-                  <span
-                    key={trait}
-                    className="rounded-full bg-gold-2/10 px-3 py-1 text-xs text-ink/60"
-                  >
-                    {trait}
-                  </span>
-                ))}
-              </div>
-            </>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {character.traits.map((trait) => (
+                <span
+                  key={trait}
+                  className="rounded-full bg-gold-2/10 px-3 py-1 text-xs text-ink/60"
+                >
+                  {trait}
+                </span>
+              ))}
+            </div>
           )}
         </div>
 
@@ -541,28 +773,127 @@ export default function CharacterDetail({
                     : "border-transparent text-ink/50 hover:text-ink"
                 }`}
               >
-                {isDraft && tab === "Arc" ? "Fit Evaluation" : tab}
+                {isDraft && tab === "Arc" ? "Fit" : tab}
               </button>
             ))}
           </div>
 
           <div className="mt-6">
+            {/* ── Profile — populated fields only, linked to their chapters ── */}
+            {activeTab === "Profile" && (
+              <div className="flex flex-col gap-6 max-w-xl">
+                {(character.role && character.role !== "Character") && (
+                  <ProfileField
+                    label="Role"
+                    value={character.role}
+                    field="role"
+                    characterId={character.id}
+                    isLocked={!!locks.role}
+                    evidence={evidence.role}
+                    onOpenEvidence={onOpenChapterEvidence}
+                  />
+                )}
+                {character.occupation && (
+                  <ProfileField
+                    label="Occupation"
+                    value={character.occupation}
+                    field="occupation"
+                    characterId={character.id}
+                    isLocked={!!locks.occupation}
+                    evidence={evidence.occupation}
+                    onOpenEvidence={onOpenChapterEvidence}
+                  />
+                )}
+                {character.origin && (
+                  <ProfileField
+                    label="Origin"
+                    value={character.origin}
+                    field="origin"
+                    characterId={character.id}
+                    isLocked={!!locks.origin}
+                    evidence={evidence.origin}
+                    onOpenEvidence={onOpenChapterEvidence}
+                  />
+                )}
+                {character.affiliation && (
+                  <ProfileField
+                    label="Affiliation"
+                    value={character.affiliation}
+                    field="affiliation"
+                    characterId={character.id}
+                    isLocked={!!locks.affiliation}
+                    evidence={evidence.affiliation}
+                    onOpenEvidence={onOpenChapterEvidence}
+                  />
+                )}
+                {character.status && character.status !== "Alive" && (
+                  <ProfileField
+                    label="Status"
+                    value={character.status}
+                    field="status"
+                    characterId={character.id}
+                    isLocked={!!locks.status}
+                    evidence={evidence.status}
+                    onOpenEvidence={onOpenChapterEvidence}
+                  />
+                )}
+                {character.age !== undefined && (
+                  <ProfileField
+                    label="Age"
+                    value={String(character.age)}
+                    field="age"
+                    characterId={character.id}
+                    isLocked={!!locks.age}
+                    evidence={evidence.age}
+                    onOpenEvidence={onOpenChapterEvidence}
+                  />
+                )}
+                {character.roleInStory && (
+                  <ProfileField
+                    label="Role in Story"
+                    value={character.roleInStory}
+                    field="roleInStory"
+                    characterId={character.id}
+                    isLocked={!!locks.roleInStory}
+                    evidence={evidence.roleInStory}
+                    onOpenEvidence={onOpenChapterEvidence}
+                  />
+                )}
+                {!character.role && !character.occupation && !character.origin &&
+                 !character.affiliation && !character.roleInStory && (
+                  <p className="text-sm text-ink/40">
+                    {isDraft
+                      ? "Fill in the profile on the Edit screen."
+                      : "Profile details will appear as you write more about this character."}
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* ── Overview ── */}
             {activeTab === "Overview" && (
               <div className="flex flex-col gap-8">
-                <div>
-                  <FieldHeader
-                    label="Overview"
-                    field="bio"
-                    characterId={character.id}
-                    isLocked={!!locks.bio}
-                    evidence={evidence.bio}
-                    onOpenEvidence={onOpenChapterEvidence}
-                  />
-                  <p className="mt-3 max-w-2xl text-ink/80">
-                    {(character.bio ?? character.description) || "No overview yet."}
+                {(character.bio ?? character.description) ? (
+                  <div>
+                    <FieldHeader
+                      label="Overview"
+                      field="bio"
+                      characterId={character.id}
+                      isLocked={!!locks.bio}
+                      evidence={evidence.bio ?? evidence.description}
+                      onOpenEvidence={onOpenChapterEvidence}
+                    />
+                    <p className="mt-3 max-w-2xl text-ink/80">
+                      {character.bio ?? character.description}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-ink/40">
+                    {isDraft
+                      ? "Add an overview on the Edit screen."
+                      : "Overview will appear as you write more about this character."}
                   </p>
-                </div>
+                )}
 
                 {character.keyTraits && character.keyTraits.length > 0 && (
                   <div>
@@ -587,74 +918,15 @@ export default function CharacterDetail({
               </div>
             )}
 
-            {/* ── Role ── */}
-            {activeTab === "Role" && (
-              <div className="flex flex-col gap-8">
-                <div>
-                  <FieldHeader
-                    label="Role in Story"
-                    field="roleInStory"
-                    characterId={character.id}
-                    isLocked={!!locks.roleInStory}
-                    evidence={evidence.roleInStory}
-                    onOpenEvidence={onOpenChapterEvidence}
-                  />
-                  <p className="mt-3 max-w-2xl text-ink/80">
-                    {character.roleInStory ?? "No role summary yet."}
-                  </p>
-                </div>
-              </div>
-            )}
-
             {/* ── Relationships ── */}
             {activeTab === "Relationships" && (
-              <div className="flex flex-col gap-4">
-                <div className="flex items-center justify-between">
-                  <h2 className="font-display text-xl text-gold-1">Relationships</h2>
-                  <button
-                    onClick={() => setShowAddChar(true)}
-                    className="flex items-center gap-1.5 rounded-full border border-gold-3/30 px-3 py-1.5 text-xs text-ink/60 hover:border-gold-2/50 hover:text-ink"
-                  >
-                    <Pencil className="h-3 w-3" />
-                    Edit relationships
-                  </button>
-                </div>
-                {character.relationships && character.relationships.length > 0 ? (
-                  character.relationships.map((rel) => {
-                    const other = allCharacters.find((c) => c.id === rel.characterId);
-                    if (!other) return null;
-                    return (
-                      <Link
-                        key={rel.characterId}
-                        href={`/writer/characters/${other.id}`}
-                        className="flex items-center gap-4 rounded-xl border border-gold-3/25 bg-bg-1 p-4 transition-colors hover:border-gold-2/50"
-                      >
-                        <CharacterAvatar
-                          name={other.name}
-                          avatarColor={other.avatarColor}
-                          className="h-12 w-12 shrink-0 rounded-lg text-lg"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-3">
-                            <p className="font-display text-base text-ink">{other.name}</p>
-                            <span className="rounded-full bg-gold-2/10 px-2.5 py-0.5 text-xs text-ink/60">
-                              {rel.relation}
-                            </span>
-                            {rel.proposed && (
-                              <span className="rounded-full bg-violet-3/30 px-2 py-0.5 text-xs text-violet-2">
-                                Proposed
-                              </span>
-                            )}
-                          </div>
-                          <p className="mt-1 text-sm text-ink/60">{rel.blurb}</p>
-                        </div>
-                      </Link>
-                    );
-                  })
-                ) : (
-                  <p className="text-ink/60">No relationships yet.</p>
-                )}
-              </div>
+              <RelationshipsTab
+                character={character}
+                allCharacters={allCharacters}
+                onShowAddChar={() => setShowAddChar(true)}
+                worldEntities={worldEntities}
+                worldRelationships={worldRelationships}
+              />
             )}
 
             {/* ── Arc (established) ── */}
@@ -752,22 +1024,3 @@ export default function CharacterDetail({
   );
 }
 
-function MetaRow({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: typeof Users;
-  label: string;
-  value: string | number;
-}) {
-  return (
-    <div className="flex items-center justify-between border-b border-gold-3/10 pb-2">
-      <span className="flex items-center gap-2 text-ink/60">
-        <Icon className="h-3.5 w-3.5" />
-        {label}
-      </span>
-      <span className="text-ink">{value}</span>
-    </div>
-  );
-}

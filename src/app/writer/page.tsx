@@ -1048,6 +1048,10 @@ export default function WriterPage() {
     setChapters((prev) =>
       prev.map((c) => c.id === chapterId ? { ...c, content, updatedAt: now } : c),
     );
+    // Notify WorldContext and CharactersContext running in the same tab.
+    // The storage event only fires in other browser tabs, so we dispatch
+    // the custom event directly to keep the world graph in sync on every save.
+    window.dispatchEvent(new CustomEvent("resonance:chaptersUpdated"));
   }, []);
 
   /* ── Delete — confirm then cascade ──────────────────────────────────── */

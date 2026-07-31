@@ -34,7 +34,8 @@ function timeAgo(d: Date | number): string {
   if (hrs < 24) return `${hrs}h ago`;
   const days = Math.floor(hrs / 24);
   if (days < 7) return `${days}d ago`;
-  return d.toLocaleDateString([], { month: "short", day: "numeric" });
+  const date = d instanceof Date ? d : new Date(d);
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
 function NotifCard({

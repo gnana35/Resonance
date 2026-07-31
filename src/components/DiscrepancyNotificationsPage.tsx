@@ -13,9 +13,13 @@
  *
  * This component reads from ConsistencyContext so all data is real.
  * No hardcoded examples.
+ *
+ * When the writer approves a discrepancy the approval is also forwarded to
+ * applyAcceptedNotification so the Story Graph grows in real time.
  */
 
 import { useState } from "react";
+import { applyAcceptedNotification } from "@/lib/storyGraph";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -588,6 +592,29 @@ export function DiscrepancyNotificationsPage({
   const [filter, setFilter] = useState<FilterTab>("Pending");
   const [detailDisc, setDetailDisc] = useState<Discrepancy | null>(null);
 
+  // Read the active project id for the graph call (same pattern as every
+  // other client component in this repo — localStorage, no context).
+  const activeProjectId =
+    typeof window !== "undefined"
+      ? (localStorage.getItem("resonance:activeProject") ?? "")
+      : "";
+
+  /**
+   * Wrap the ConsistencyContext approve so it also materialises graph nodes.
+   * applyAcceptedNotification is idempotent — approving twice is safe.
+   */
+  function handleApprove(id: string, note: string) {
+    approve(id, note);
+    const disc = discrepancies.find((d) => d.id === id);
+    if (disc && activeProjectId) {
+      applyAcceptedNotification(activeProjectId, disc.id, {
+        subject: disc.subject,
+        attribute: disc.attribute,
+        designValue: disc.designValue || null,
+      });
+    }
+  }
+
   // Load chapter titles for display
   const chapters: Array<{ id: string; title: string }> = (() => {
     if (typeof window === "undefined") return [];
@@ -671,7 +698,7 @@ export function DiscrepancyNotificationsPage({
               disc={disc}
               role={role}
               onClick={() => setDetailDisc(disc)}
-              onApprove={approve}
+              onApprove={handleApprove}
               onReject={reject}
               chapters={chapters}
             />
@@ -684,7 +711,7 @@ export function DiscrepancyNotificationsPage({
         <DetailPanel
           disc={detailDisc}
           role={role}
-          onApprove={(id, note) => { approve(id, note); setDetailDisc(null); }}
+          onApprove={(id, note) => { handleApprove(id, note); setDetailDisc(null); }}
           onReject={(id, note) => { reject(id, note); setDetailDisc(null); }}
           onClose={() => setDetailDisc(null)}
           chapters={chapters}

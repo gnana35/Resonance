@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { LayoutGrid, List, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useCharacters } from "@/context/CharactersContext";
+import { useWorld } from "@/context/WorldContext";
 import { CharacterAvatar } from "@/components/CharacterAvatar";
 import { DraftBadge } from "@/components/DraftBadge";
 import { DeleteCharacterModal, NewCharacterModal } from "@/components/CharacterModals";
@@ -18,40 +19,16 @@ export default function CharactersList() {
     setViewMode,
     deriveStatus,
     deriveChangeSummary,
-    deriveFromManuscript,
   } = useCharacters();
+
+  // Characters come from WorldContext's extraction — Refresh triggers WorldContext.
+  const { runDerivation, deriveStatus: worldDeriveStatus } = useWorld();
 
   const [filter, setFilter] = useState<Filter>("all");
   const [deleteTarget, setDeleteTarget] = useState<Character | null>(null);
   const [showNew, setShowNew] = useState(false);
 
-  // Load chapters from the active project for the manual refresh trigger.
-  // We read from the same localStorage key the writer page uses.
-  function getProjectChapters() {
-    try {
-      const raw = localStorage.getItem("resonance:chapters");
-      if (!raw) return { chapters: [], projectId: "" };
-      const all = JSON.parse(raw) as Array<{
-        id: string; projectId: string; partId: string | null;
-        title: string; content: string; order: number;
-      }>;
-      // Use the most recently active project from the writer page
-      const activeProject = localStorage.getItem("resonance:activeProject") ?? "";
-      const chapters = activeProject
-        ? all.filter((c) => c.projectId === activeProject)
-        : all;
-      return { chapters, projectId: activeProject };
-    } catch { return { chapters: [], projectId: "" }; }
-  }
-
-  function handleRefresh() {
-    const { chapters, projectId } = getProjectChapters();
-    if (!projectId) return;
-    deriveFromManuscript(
-      chapters.map((c) => ({ id: c.id, title: c.title, content: c.content, order: c.order })),
-      projectId,
-    );
-  }
+  const isRunning = deriveStatus === "running" || worldDeriveStatus === "running";
 
   const hasContent = (() => {
     try {
@@ -81,20 +58,20 @@ export default function CharactersList() {
 
         <div className="flex items-center gap-3">
           {/* Derivation status */}
-          {deriveStatus === "running" && (
+          {isRunning && (
             <span className="flex items-center gap-1.5 text-xs text-ink/50">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               Scanning manuscript…
             </span>
           )}
-          {deriveStatus === "done" && deriveChangeSummary && (
+          {!isRunning && deriveChangeSummary && (
             <span className="text-xs text-emerald-400/70">{deriveChangeSummary}</span>
           )}
 
-          {/* Manual refresh */}
+          {/* Manual refresh — triggers WorldContext extraction which emits characters */}
           <button
-            onClick={handleRefresh}
-            disabled={!hasContent || deriveStatus === "running"}
+            onClick={runDerivation}
+            disabled={!hasContent || isRunning}
             title={hasContent ? "Rescan manuscript for characters" : "Write some chapter content first"}
             className="flex items-center gap-1.5 rounded-full border border-gold-3/30 px-3 py-2 text-xs text-ink/60 transition-colors hover:border-gold-2/50 hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
           >

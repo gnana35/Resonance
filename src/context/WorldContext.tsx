@@ -1,14 +1,24 @@
 "use client";
 
 /**
- * WorldContext — derives world-building entities and relationships from manuscript text.
+ * WorldContext — derives world-building entities and relationships from the
+ * manuscript via a single Gemini structured extraction call per chapter.
  *
- * Architecture mirrors CharactersContext:
- *  - Reads chapters from localStorage (resonance:chapters) filtered by active project
- *  - Derives entities + relationships purely from text
- *  - Persists per-project world state to localStorage
- *  - Exposes confirm / dismiss / lock / unlock / resolveContradiction actions
- *  - Fires on chapter save (via "resonance:chaptersUpdated" event) and on explicit refresh
+ * Architecture
+ * ────────────
+ * • runDerivation() calls /api/extract-entities once per chapter, passing the
+ *   chapter text + the entities already known in this project so the model can
+ *   match rather than re-invent.
+ * • Results are resolved against existing state:
+ *     1. Exact canonical label match
+ *     2. Alias match in either direction
+ *     3. Fuzzy normalised-name match
+ *   On a match → merge aliases/evidence into the existing node.
+ *   Only insert when nothing matches.
+ * • Re-running an unchanged chapter (same fingerprint) produces zero new rows.
+ * • Character-kind entities from the extraction are also emitted as a custom
+ *   event ("resonance:entitiesExtracted") for CharactersContext to consume —
+ *   no second manuscript read.
  */
 
 import {
@@ -29,17 +39,16 @@ import type {
   WorldRelationshipKind,
   WorldContradiction,
   WorldDeriveStatus,
-  WorldDeriveChangeSummary,
   ProjectWorldState,
 } from "@/data/world";
+import type { ExtractedEntity, ExtractionResult } from "@/app/api/extract-entities/route";
 
 /* ═══════════════════════════════════════════════════════════════════════════
    STORAGE HELPERS
    ═══════════════════════════════════════════════════════════════════════════ */
 
-const WORLD_SK = "resonance:world:v1";
-const CHAPTERS_SK = "resonance:chapters";
-const ACTIVE_PROJ_SK = "resonance:activeProject";
+const WORLD_SK       = "resonance:world:v1";
+const CHAPTERS_SK    = "resonance:chapters";
 
 function loadJSON<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
@@ -58,15 +67,15 @@ function uid() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   CHAPTER TYPE (mirrors writer page)
+   CHAPTER TYPE
    ═══════════════════════════════════════════════════════════════════════════ */
 
 type RawChapter = {
-  id: string;
+  id:        string;
   projectId: string;
-  title: string;
-  content: string;
-  order: number;
+  title:     string;
+  content:   string;
+  order:     number;
   createdAt: string;
   updatedAt: string;
 };
@@ -75,7 +84,7 @@ type RawChapter = {
    HTML → PLAIN TEXT
    ═══════════════════════════════════════════════════════════════════════════ */
 
-function htmlToText(html: string): string {
+export function htmlToText(html: string): string {
   if (!html) return "";
   if (typeof document === "undefined") {
     return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
@@ -89,7 +98,9 @@ function htmlToText(html: string): string {
    FINGERPRINT
    ═══════════════════════════════════════════════════════════════════════════ */
 
-function manuscriptFingerprint(chapters: { id: string; content: string }[]): string {
+export function manuscriptFingerprint(
+  chapters: { id: string; content: string }[],
+): string {
   const combined = chapters.map((c) => `${c.id}:${c.content}`).join("|");
   let h = 0;
   for (let i = 0; i < combined.length; i++) {
@@ -99,571 +110,133 @@ function manuscriptFingerprint(chapters: { id: string; content: string }[]): str
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   EXCERPT HELPER
+   NORMALISE LABEL — used for fuzzy matching
    ═══════════════════════════════════════════════════════════════════════════ */
 
-function findExcerpt(name: string, text: string, maxLen = 140): string {
-  const idx = text.toLowerCase().indexOf(name.toLowerCase());
-  if (idx === -1) return "";
-  const start = Math.max(0, idx - 50);
-  const end = Math.min(text.length, idx + 90);
-  let excerpt = text.slice(start, end).replace(/\s+/g, " ").trim();
-  if (start > 0) excerpt = "…" + excerpt;
-  if (end < text.length) excerpt += "…";
-  return excerpt.slice(0, maxLen);
+/** Lowercase, strip titles + punctuation, collapse whitespace. */
+function normLabel(label: string): string {
+  return label
+    .toLowerCase()
+    .replace(/\b(lord|lady|sir|dame|king|queen|prince|princess|captain|master|mistress|dr|mr|mrs|ms|the)\b/g, "")
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   ENTITY EXTRACTION PATTERNS
+   ENTITY RESOLUTION — find the best matching existing entity
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/**
- * Location indicators — phrases that precede or follow a proper noun to
- * indicate it's a place.
- */
-const LOCATION_BEFORE = [
-  "in", "at", "to", "toward", "towards", "from", "through", "across", "near",
-  "outside", "inside", "within", "beyond", "north of", "south of", "east of",
-  "west of", "arrived in", "reached", "entered", "left", "city of", "town of",
-  "village of", "ruins of", "forest of", "mountains of", "castle of", "lands of",
-  "district of", "quarter of", "region of", "capital of", "heart of",
-];
-const LOCATION_AFTER = [
-  "forest", "city", "town", "village", "mountain", "mountains", "river",
-  "sea", "ocean", "desert", "wasteland", "ruins", "castle", "tower", "keep",
-  "fortress", "valley", "plains", "pass", "gate", "district", "quarter",
-  "realm", "lands", "border", "bay", "road", "path", "trail",
-];
-
-/**
- * Faction indicators — noun phrases that precede a proper noun to indicate
- * it's a group / organisation.
- */
-const FACTION_BEFORE = [
-  "the order of", "guild of", "house of", "clan of", "tribe of", "order of",
-  "faction of", "league of", "brotherhood of", "sisterhood of", "council of",
-  "court of", "army of", "soldiers of", "followers of", "cult of",
-];
-const FACTION_AFTER = [
-  "order", "guild", "clan", "tribe", "council", "army", "faction", "alliance",
-  "brotherhood", "sisterhood", "court", "legion", "guard", "ward",
-];
-
-/**
- * Event indicators.
- */
-const EVENT_BEFORE = [
-  "the battle of", "the fall of", "the rise of", "the siege of", "the war of",
-  "the treaty of", "the founding of", "the destruction of", "the arrival of",
-  "the death of", "the birth of", "the discovery of",
-];
-const EVENT_AFTER = [
-  "battle", "war", "siege", "treaty", "accord", "pact", "rebellion", "uprising",
-  "massacre", "disaster", "cataclysm", "catastrophe", "event", "incident",
-];
-
-/**
- * Object / relic indicators.
- */
-const OBJECT_AFTER = [
-  "sword", "blade", "staff", "orb", "relic", "artifact", "amulet", "ring",
-  "crown", "tome", "scroll", "key", "stone", "crystal", "gem", "shard",
-  "seal", "sigil", "core", "heart", "eye",
-];
-
-/* ─── Proper-noun token (1-3 capitalised words) ─────────────────────────── */
-const PROPER_NOUN_RE =
-  /(?<![.!?]\s)(?<!\bthe\s)(?<!\ba\s)(?<!\ban\s)\b([A-Z][a-z]{2,})(?:\s+[A-Z][a-z]{2,}){0,2}\b/g;
-
-const SKIP_WORDS = new Set([
-  "The","She","He","They","It","We","You","I","Then","When","Now",
-  "But","And","Or","If","As","At","By","Do","For","From","In","Into",
-  "Of","On","So","To","Up","Was","With","Could","Would","Should",
-  "Her","His","Its","Our","Their","That","This","These","Those",
-  "After","Before","During","While","Upon","Through","Between",
-  "Said","Told","Asked","Called","Came","Went","Saw","Knew","Felt",
-  "Chapter","Part","Section","Book","Act",
-]);
-
-/* ─── Slug helper ──────────────────────────────────────────────────────── */
-function toSlug(label: string): string {
-  return label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-}
-
-/* ─── Context window extraction ─────────────────────────────────────────── */
-function wordsAround(text: string, idx: number, before = 4, after = 4): string {
-  const preText  = text.slice(Math.max(0, idx - 60), idx).toLowerCase();
-  const postText = text.slice(idx, Math.min(text.length, idx + 60)).toLowerCase();
-  return preText + " " + postText;
-}
-
-/* ─── Classify a proper noun token ──────────────────────────────────────── */
-type RawEntity = {
-  label: string;
-  kind: WorldEntityKind;
-  subtype?: string;
-  chapterId: string;
-  chapterTitle: string;
-  excerpt: string;
+type ExistingEntityIndex = {
+  entities:  WorldEntity[];
+  byLabel:   Map<string, WorldEntity>;   // normalised label → entity
+  byAlias:   Map<string, WorldEntity>;   // normalised alias  → entity
 };
 
-function classifyNoun(
-  noun: string,
-  idx: number,
-  text: string,
-  chapterId: string,
-  chapterTitle: string,
-): RawEntity | null {
-  const ctx = wordsAround(text, idx);
-  const nounLower = noun.toLowerCase();
+function buildEntityIndex(entities: WorldEntity[]): ExistingEntityIndex {
+  const byLabel = new Map<string, WorldEntity>();
+  const byAlias = new Map<string, WorldEntity>();
 
-  // Check for location indicators
-  for (const before of LOCATION_BEFORE) {
-    if (ctx.includes(before + " " + nounLower) || ctx.includes(before + " the " + nounLower)) {
-      const subtype = LOCATION_AFTER.find((a) => ctx.includes(nounLower + " " + a));
-      return { label: noun, kind: "location", subtype, chapterId, chapterTitle, excerpt: findExcerpt(noun, text) };
+  for (const e of entities) {
+    byLabel.set(normLabel(e.label), e);
+    const aliases: string[] = Array.isArray((e as unknown as { aliases?: string[] }).aliases)
+      ? (e as unknown as { aliases: string[] }).aliases
+      : [];
+    for (const a of aliases) {
+      byAlias.set(normLabel(a), e);
     }
   }
-  const subtypeLoc = LOCATION_AFTER.find((a) => ctx.includes(nounLower + " " + a));
-  if (subtypeLoc) {
-    return { label: noun, kind: "location", subtype: subtypeLoc, chapterId, chapterTitle, excerpt: findExcerpt(noun, text) };
-  }
-
-  // Check for faction indicators
-  for (const before of FACTION_BEFORE) {
-    if (ctx.includes(before + " " + nounLower)) {
-      return { label: noun, kind: "faction", chapterId, chapterTitle, excerpt: findExcerpt(noun, text) };
-    }
-  }
-  const subtypeFac = FACTION_AFTER.find((a) => ctx.includes("the " + nounLower + " " + a) || ctx.includes(nounLower + " " + a));
-  if (subtypeFac) {
-    return { label: noun, kind: "faction", subtype: subtypeFac, chapterId, chapterTitle, excerpt: findExcerpt(noun, text) };
-  }
-
-  // Check for event indicators
-  for (const before of EVENT_BEFORE) {
-    if (ctx.includes(before + " " + nounLower)) {
-      return { label: noun, kind: "event", chapterId, chapterTitle, excerpt: findExcerpt(noun, text) };
-    }
-  }
-  const subtypeEvt = EVENT_AFTER.find((a) => ctx.includes("the " + nounLower + " " + a) || ctx.includes(nounLower + " " + a));
-  if (subtypeEvt) {
-    return { label: noun, kind: "event", subtype: subtypeEvt, chapterId, chapterTitle, excerpt: findExcerpt(noun, text) };
-  }
-
-  // Check for objects
-  const subtypeObj = OBJECT_AFTER.find((a) => ctx.includes(nounLower + " " + a) || ctx.includes("the " + nounLower));
-  if (subtypeObj) {
-    return { label: noun, kind: "object", subtype: subtypeObj, chapterId, chapterTitle, excerpt: findExcerpt(noun, text) };
-  }
-
-  // No strong signal — return as "other" for inferred treatment
-  return { label: noun, kind: "other", chapterId, chapterTitle, excerpt: findExcerpt(noun, text) };
+  return { entities, byLabel, byAlias };
 }
 
-/* ─── Relationship extraction from sentence patterns ────────────────────── */
+/**
+ * Resolve an extracted label against the existing index.
+ * Returns the matching existing entity, or null if nothing matches.
+ *
+ * Resolution order:
+ *   1. Exact normalised label match
+ *   2. Alias match in either direction (extracted label == existing alias, or
+ *      extracted aliases == existing label)
+ *   3. Substring match on normalised forms (one fully contains the other)
+ */
+function resolveEntity(
+  extracted: ExtractedEntity,
+  index: ExistingEntityIndex,
+): WorldEntity | null {
+  const normExtracted = normLabel(extracted.label);
 
-type RawRelationship = {
-  sourceLabel: string;
-  targetLabel: string;
-  label: string;
-  kind: WorldRelationshipKind;
-  chapterId: string;
-  chapterTitle: string;
-  excerpt: string;
-};
+  // 1. exact canonical label
+  const byLabelMatch = index.byLabel.get(normExtracted);
+  if (byLabelMatch) return byLabelMatch;
 
-/** Extracts raw relationships from a sentence and a set of known entity labels. */
-function extractRelationships(
-  sentence: string,
-  entityLabels: Set<string>,
-  chapterId: string,
-  chapterTitle: string,
-): RawRelationship[] {
-  const results: RawRelationship[] = [];
-  const labels = [...entityLabels];
+  // 2. extracted label == existing alias
+  const byAliasMatch = index.byAlias.get(normExtracted);
+  if (byAliasMatch) return byAliasMatch;
 
-  for (const src of labels) {
-    for (const tgt of labels) {
-      if (src === tgt) continue;
-      const s = sentence.toLowerCase();
-      const srcL = src.toLowerCase();
-      const tgtL = tgt.toLowerCase();
-      if (!s.includes(srcL) || !s.includes(tgtL)) continue;
+  // 2b. extracted aliases == existing label or alias
+  for (const alias of extracted.aliases) {
+    const normAlias = normLabel(alias);
+    const m = index.byLabel.get(normAlias) ?? index.byAlias.get(normAlias);
+    if (m) return m;
+  }
 
-      // Containment
-      if (
-        s.match(new RegExp(`${srcL}[^.]*inside[^.]*${tgtL}`)) ||
-        s.match(new RegExp(`${srcL}[^.]*within[^.]*${tgtL}`)) ||
-        s.match(new RegExp(`${srcL}[^.]*part of[^.]*${tgtL}`))
-      ) {
-        results.push({ sourceLabel: src, targetLabel: tgt, label: "within", kind: "contains", chapterId, chapterTitle, excerpt: sentence.slice(0, 140) });
-        continue;
-      }
-
-      // Control
-      if (
-        s.match(new RegExp(`${srcL}[^.]*control[^.]*${tgtL}`)) ||
-        s.match(new RegExp(`${srcL}[^.]*rule[^.]*${tgtL}`)) ||
-        s.match(new RegExp(`${srcL}[^.]*command[^.]*${tgtL}`))
-      ) {
-        results.push({ sourceLabel: src, targetLabel: tgt, label: "controls", kind: "controls", chapterId, chapterTitle, excerpt: sentence.slice(0, 140) });
-        continue;
-      }
-
-      // Opposition
-      if (
-        s.match(new RegExp(`${srcL}[^.]*against[^.]*${tgtL}`)) ||
-        s.match(new RegExp(`${srcL}[^.]*fight[^.]*${tgtL}`)) ||
-        s.match(new RegExp(`${srcL}[^.]*enemy[^.]*${tgtL}`)) ||
-        s.match(new RegExp(`${srcL}[^.]*oppos[^.]*${tgtL}`))
-      ) {
-        results.push({ sourceLabel: src, targetLabel: tgt, label: "opposed to", kind: "opposed", chapterId, chapterTitle, excerpt: sentence.slice(0, 140) });
-        continue;
-      }
-
-      // Alliance
-      if (
-        s.match(new RegExp(`${srcL}[^.]*allied[^.]*${tgtL}`)) ||
-        s.match(new RegExp(`${srcL}[^.]*ally[^.]*${tgtL}`)) ||
-        s.match(new RegExp(`${srcL}[^.]*joined[^.]*${tgtL}`))
-      ) {
-        results.push({ sourceLabel: src, targetLabel: tgt, label: "allied with", kind: "allied", chapterId, chapterTitle, excerpt: sentence.slice(0, 140) });
-        continue;
-      }
-
-      // Physical co-presence / travel (both appear in sentence with spatial verbs)
-      if (
-        s.match(new RegExp(`${srcL}[^.]*(?:walked|rode|fled|arrived|traveled|crossed|entered|left|approached|reached|stood in|was in)[^.]*${tgtL}`))
-      ) {
-        results.push({ sourceLabel: src, targetLabel: tgt, label: "present at", kind: "associated", chapterId, chapterTitle, excerpt: sentence.slice(0, 140) });
-        continue;
-      }
-
-      // Causal
-      if (
-        s.match(new RegExp(`${srcL}[^.]*caused[^.]*${tgtL}`)) ||
-        s.match(new RegExp(`${srcL}[^.]*led to[^.]*${tgtL}`)) ||
-        s.match(new RegExp(`${srcL}[^.]*triggered[^.]*${tgtL}`))
-      ) {
-        results.push({ sourceLabel: src, targetLabel: tgt, label: "caused", kind: "caused", chapterId, chapterTitle, excerpt: sentence.slice(0, 140) });
-      }
+  // 3. substring (one normalised form contains the other)
+  for (const [existingNorm, entity] of index.byLabel) {
+    if (
+      (normExtracted.length >= 4 && existingNorm.includes(normExtracted)) ||
+      (existingNorm.length >= 4 && normExtracted.includes(existingNorm))
+    ) {
+      return entity;
     }
   }
-  return results;
+
+  return null;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   DERIVATION ENGINE
+   MAP RELATIONSHIP TYPE
    ═══════════════════════════════════════════════════════════════════════════ */
 
-type DerivationInput = {
-  projectId: string;
-  chapters: Array<{ id: string; title: string; content: string; order: number }>;
-  existingState: ProjectWorldState;
-};
-
-type DerivationOutput = {
-  state: ProjectWorldState;
-  summary: WorldDeriveChangeSummary;
-};
-
-function runWorldDerivation(input: DerivationInput): DerivationOutput {
-  const { projectId, chapters, existingState } = input;
-  const now = Date.now();
-
-  // Gather all chapter texts
-  const chapterTexts = chapters.map((c) => ({
-    id: c.id,
-    title: c.title,
-    text: htmlToText(c.content),
-    order: c.order,
-  }));
-
-  // ── Pass 1: Extract all proper nouns + classify them ──────────────────── //
-  const rawEntities: RawEntity[] = [];
-
-  for (const ch of chapterTexts) {
-    if (!ch.text) continue;
-    PROPER_NOUN_RE.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = PROPER_NOUN_RE.exec(ch.text)) !== null) {
-      const word = m[1];
-      if (SKIP_WORDS.has(word) || word.length < 3) continue;
-      const classified = classifyNoun(word, m.index, ch.text, ch.id, ch.title);
-      if (classified) rawEntities.push(classified);
-    }
+function mapRelKind(rel: string): WorldRelationshipKind {
+  switch (rel) {
+    case "located-in":   return "contains";    // inverted: target contains source
+    case "member-of":    return "associated";
+    case "travels-to":   return "associated";
+    case "controls":     return "controls";
+    case "occurred-at":  return "involves";
+    case "owns":         return "associated";
+    case "ally":         return "allied";
+    case "rival":        return "opposed";
+    case "family":       return "associated";
+    case "knows":        return "associated";
+    default:             return "other";
   }
-
-  // ── Pass 2: Deduplicate & normalise entity labels ─────────────────────── //
-  // Build canonical map: variant → canonical label
-  const canonMap = new Map<string, string>(); // lowercase variant → canonical
-
-  // Sort by length desc so longer forms are canonical
-  const sorted = [...rawEntities].sort((a, b) => b.label.length - a.label.length);
-  for (const raw of sorted) {
-    const lower = raw.label.toLowerCase();
-    let found = false;
-    for (const [variant, canon] of canonMap) {
-      if (
-        canon.toLowerCase().includes(lower) ||
-        lower.includes(variant) ||
-        canon.toLowerCase().split(" ").includes(lower)
-      ) {
-        canonMap.set(lower, canon); // alias → same canonical
-        found = true;
-        break;
-      }
-    }
-    if (!found) canonMap.set(lower, raw.label);
-  }
-
-  // Merge raw entities to canonical forms, collecting evidence per canonical
-  const entityEvidence = new Map<string, {
-    label: string;
-    kind: WorldEntityKind;
-    subtype?: string;
-    evidence: WorldEvidence[];
-    chapterIds: Set<string>;
-  }>();
-
-  for (const raw of rawEntities) {
-    const lower = raw.label.toLowerCase();
-    const canon = canonMap.get(lower) ?? raw.label;
-    if (!entityEvidence.has(canon)) {
-      entityEvidence.set(canon, {
-        label: canon,
-        kind: raw.kind,
-        subtype: raw.subtype,
-        evidence: [],
-        chapterIds: new Set(),
-      });
-    }
-    const entry = entityEvidence.get(canon)!;
-    entry.chapterIds.add(raw.chapterId);
-    // Only keep first 3 distinct excerpts
-    if (entry.evidence.length < 3 && raw.excerpt) {
-      const dup = entry.evidence.find((e) => e.chapterId === raw.chapterId && e.excerpt === raw.excerpt);
-      if (!dup) {
-        entry.evidence.push({ chapterId: raw.chapterId, chapterTitle: raw.chapterTitle, excerpt: raw.excerpt });
-      }
-    }
-    // If we see a more specific kind, upgrade (other < location/faction/event/object)
-    if (entry.kind === "other" && raw.kind !== "other") {
-      entry.kind = raw.kind;
-      if (raw.subtype) entry.subtype = raw.subtype;
-    }
-  }
-
-  // ── Pass 3: Merge with existing state ─────────────────────────────────── //
-  const existingEntitiesMap = new Map(existingState.entities.map((e) => [e.id, e]));
-  const labelToId = new Map<string, string>();
-  for (const e of existingState.entities) {
-    labelToId.set(e.label.toLowerCase(), e.id);
-  }
-
-  const nextEntities: WorldEntity[] = [];
-  const contradictions: WorldContradiction[] = [...existingState.contradictions.filter((c) => !c.resolvedAt)];
-  let newEntities = 0;
-  let updatedEntities = 0;
-  let newContradictions = 0;
-
-  // Keep entities not in this pass (might be locked or will be marked unsupported)
-  // We'll mark them unsupported at the end if needed
-  const seenIds = new Set<string>();
-
-  for (const [canon, derived] of entityEvidence) {
-    // Skip if this entity was dismissed
-    const existingId = labelToId.get(canon.toLowerCase());
-    const existing = existingId ? existingEntitiesMap.get(existingId) : undefined;
-
-    if (existing?.status === "dismissed") {
-      // Only resurface if text significantly changed (different excerpts)
-      const sameExcerpts = derived.evidence.every((e) =>
-        existing.evidence.some((ee) => ee.excerpt === e.excerpt),
-      );
-      if (sameExcerpts) {
-        nextEntities.push(existing);
-        seenIds.add(existing.id);
-        continue;
-      }
-      // New text → treat as new inferred
-    }
-
-    if (existing) {
-      seenIds.add(existing.id);
-      // Locked entry — don't overwrite any fields, but update evidence
-      if (existing.locked) {
-        const updatedChapterIds = [...new Set([...existing.chapterIds, ...derived.chapterIds])];
-        nextEntities.push({
-          ...existing,
-          chapterIds: updatedChapterIds,
-          lastDerivedAt: now,
-          updatedAt: now,
-        });
-        updatedEntities++;
-        continue;
-      }
-
-      // Check for description contradiction (if existing description differs significantly)
-      // (We won't generate descriptions in MVP — keep this space for future)
-
-      // Merge: update evidence and chapters, preserve status
-      const updatedChapterIds = [...new Set([...existing.chapterIds, ...derived.chapterIds])];
-      const mergedEvidence = mergeEvidence(existing.evidence, derived.evidence);
-      nextEntities.push({
-        ...existing,
-        chapterIds: updatedChapterIds,
-        evidence: mergedEvidence,
-        // If kind was other and is now more specific, upgrade it (unless locked)
-        kind: existing.kind === "other" && derived.kind !== "other" ? derived.kind : existing.kind,
-        subtype: existing.subtype ?? derived.subtype,
-        lastDerivedAt: now,
-        updatedAt: now,
-      });
-      updatedEntities++;
-    } else {
-      // New entity
-      // Heuristic: if we have strong location/faction/event/object signal → confirmed
-      // If kind is "other" or only appears once → inferred
-      const appearsMultiple = derived.chapterIds.size > 1;
-      const strongSignal = derived.kind !== "other";
-      const status: WorldEntityStatus = (strongSignal || appearsMultiple) ? "confirmed" : "inferred";
-      const inferenceNote = status === "inferred"
-        ? `"${canon}" appears in ${[...derived.chapterIds].map((id) => {
-            const ch = chapters.find((c) => c.id === id);
-            return ch?.title ?? id;
-          }).join(", ")}. Resonance detected it as a possible world element but could not confirm its type from context.`
-        : undefined;
-
-      const newEntity: WorldEntity = {
-        id: `${toSlug(canon)}-${uid()}`,
-        projectId,
-        label: canon,
-        kind: derived.kind,
-        status,
-        subtype: derived.subtype,
-        chapterIds: [...derived.chapterIds],
-        evidence: derived.evidence,
-        inferenceNote,
-        lastDerivedAt: now,
-        createdAt: now,
-        updatedAt: now,
-      };
-      nextEntities.push(newEntity);
-      labelToId.set(canon.toLowerCase(), newEntity.id);
-      newEntities++;
-    }
-  }
-
-  // ── Mark unsupported entities ─────────────────────────────────────────── //
-  let unsupportedMarked = 0;
-  for (const existing of existingState.entities) {
-    if (seenIds.has(existing.id)) continue;
-    if (existing.status === "dismissed") {
-      nextEntities.push(existing);
-      continue;
-    }
-    // Supporting text gone
-    if (existing.status !== "unsupported") {
-      nextEntities.push({ ...existing, status: "unsupported", updatedAt: now });
-      unsupportedMarked++;
-    } else {
-      nextEntities.push(existing);
-    }
-  }
-
-  // ── Pass 4: Extract relationships ─────────────────────────────────────── //
-  const entityLabelSet = new Set(nextEntities.filter((e) => e.status !== "dismissed").map((e) => e.label));
-  const rawRelationships: RawRelationship[] = [];
-
-  for (const ch of chapterTexts) {
-    if (!ch.text) continue;
-    // Split into sentences
-    const sentences = ch.text.split(/(?<=[.!?])\s+/);
-    for (const sentence of sentences) {
-      const rels = extractRelationships(sentence, entityLabelSet, ch.id, ch.title);
-      rawRelationships.push(...rels);
-    }
-  }
-
-  // ── Pass 5: Merge relationships with existing ─────────────────────────── //
-  const existingRelsMap = new Map(existingState.relationships.map((r) => [r.id, r]));
-  const relKey = (srcId: string, tgtId: string, kind: WorldRelationshipKind) =>
-    `${srcId}::${tgtId}::${kind}`;
-  const existingRelKeys = new Map<string, string>(); // key → relationship id
-  for (const r of existingState.relationships) {
-    existingRelKeys.set(relKey(r.sourceId, r.targetId, r.kind), r.id);
-  }
-
-  const nextRelationships: WorldRelationship[] = [...existingState.relationships];
-  let newRelationships = 0;
-
-  for (const raw of rawRelationships) {
-    const srcId = labelToId.get(raw.sourceLabel.toLowerCase());
-    const tgtId = labelToId.get(raw.targetLabel.toLowerCase());
-    if (!srcId || !tgtId) continue;
-
-    const key = relKey(srcId, tgtId, raw.kind);
-    if (existingRelKeys.has(key)) {
-      // Relationship already exists; merge evidence
-      const id = existingRelKeys.get(key)!;
-      const idx = nextRelationships.findIndex((r) => r.id === id);
-      if (idx >= 0 && !nextRelationships[idx].locked) {
-        nextRelationships[idx] = {
-          ...nextRelationships[idx],
-          evidence: mergeEvidence(nextRelationships[idx].evidence, [{
-            chapterId: raw.chapterId,
-            chapterTitle: raw.chapterTitle,
-            excerpt: raw.excerpt,
-          }]),
-          updatedAt: now,
-        };
-      }
-      continue;
-    }
-
-    const srcEntity = nextEntities.find((e) => e.id === srcId);
-    const tgtEntity = nextEntities.find((e) => e.id === tgtId);
-    if (!srcEntity || !tgtEntity) continue;
-
-    const newRel: WorldRelationship = {
-      id: `rel-${uid()}`,
-      projectId,
-      sourceId: srcId,
-      targetId: tgtId,
-      label: raw.label,
-      kind: raw.kind,
-      // Relationship is confirmed only if both entities are confirmed
-      status: srcEntity.status === "confirmed" && tgtEntity.status === "confirmed"
-        ? "confirmed"
-        : "inferred",
-      evidence: [{ chapterId: raw.chapterId, chapterTitle: raw.chapterTitle, excerpt: raw.excerpt }],
-      createdAt: now,
-      updatedAt: now,
-    };
-    nextRelationships.push(newRel);
-    existingRelKeys.set(key, newRel.id);
-    newRelationships++;
-  }
-
-  const nextState: ProjectWorldState = {
-    projectId,
-    entities: nextEntities,
-    relationships: nextRelationships,
-    contradictions,
-    lastFingerprint: manuscriptFingerprint(chapters),
-    lastAnalysedAt: now,
-  };
-
-  return {
-    state: nextState,
-    summary: { newEntities, updatedEntities, newRelationships, newContradictions, unsupportedMarked },
-  };
 }
 
-/* ─── Merge evidence arrays without duplicates ───────────────────────────── */
-function mergeEvidence(existing: WorldEvidence[], incoming: WorldEvidence[]): WorldEvidence[] {
+/* ═══════════════════════════════════════════════════════════════════════════
+   MAP ENTITY KIND (extracted → world kind)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+function mapEntityKind(kind: string): WorldEntityKind {
+  switch (kind) {
+    case "character":    return "character";
+    case "organization": return "faction";
+    case "location":     return "location";
+    case "object":       return "object";
+    case "event":        return "event";
+    case "story-arc":    return "other";   // WorldEntityKind has no story-arc
+    default:             return "other";
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MERGE EVIDENCE
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+function mergeEvidence(
+  existing: WorldEvidence[],
+  incoming: WorldEvidence[],
+): WorldEvidence[] {
   const merged = [...existing];
   for (const ev of incoming) {
     const dup = merged.find(
@@ -672,6 +245,261 @@ function mergeEvidence(existing: WorldEvidence[], incoming: WorldEvidence[]): Wo
     if (!dup && merged.length < 5) merged.push(ev);
   }
   return merged;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CALL THE EXTRACTION API FOR ONE CHAPTER
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+async function extractChapter(
+  chapterId:     string,
+  chapterTitle:  string,
+  text:          string,
+  knownEntities: Array<{ label: string; kind: string; aliases: string[] }>,
+): Promise<ExtractionResult> {
+  const res = await fetch("/api/extract-entities", {
+    method:  "POST",
+    headers: { "Content-Type": "application/json" },
+    body:    JSON.stringify({ chapterId, chapterTitle, text, knownEntities }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText })) as { error?: string };
+    throw new Error(`Extraction failed for "${chapterTitle}": ${err.error ?? res.statusText}`);
+  }
+  return res.json() as Promise<ExtractionResult>;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   APPLY ONE CHAPTER'S EXTRACTION RESULTS INTO PROJECT STATE
+   Returns updated state + change counters.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+type ApplyResult = {
+  state:        ProjectWorldState;
+  newEntities:  number;
+  updatedEntities: number;
+  newRelationships: number;
+};
+
+function applyChapterExtraction(
+  projectId:   string,
+  state:       ProjectWorldState,
+  chapterId:   string,
+  chapterTitle: string,
+  result:      ExtractionResult,
+): ApplyResult {
+  const now   = Date.now();
+  let newEntities       = 0;
+  let updatedEntities   = 0;
+  let newRelationships  = 0;
+
+  // Work on mutable copies
+  const entities:      WorldEntity[]      = [...state.entities];
+  const relationships: WorldRelationship[] = [...state.relationships];
+
+  // Build a lookup map for the current entity set (label → id)
+  const labelToId = new Map<string, string>();
+  for (const e of entities) {
+    labelToId.set(normLabel(e.label), e.id);
+    const aliases: string[] = Array.isArray((e as unknown as { aliases?: string[] }).aliases)
+      ? (e as unknown as { aliases: string[] }).aliases
+      : [];
+    for (const a of aliases) labelToId.set(normLabel(a), e.id);
+  }
+
+  const index = buildEntityIndex(entities);
+
+  /* ── 1. Resolve / upsert entities ────────────────────────────────────── */
+  for (const extracted of result.entities) {
+    if (!extracted.label?.trim()) continue;
+
+    const ev: WorldEvidence = {
+      chapterId,
+      chapterTitle,
+      excerpt: (extracted.excerpt ?? "").slice(0, 200),
+    };
+
+    const existing = resolveEntity(extracted, index);
+
+    if (existing) {
+      if (existing.status === "dismissed") continue; // writer dismissed it
+
+      const idx = entities.findIndex((e) => e.id === existing.id);
+      if (idx < 0) continue;
+
+      if (existing.locked) {
+        // Only update evidence; don't touch any other field
+        const mergedEv = mergeEvidence(existing.evidence, [ev]);
+        const updatedChapters = [...new Set([...existing.chapterIds, chapterId])];
+        entities[idx] = { ...existing, evidence: mergedEv, chapterIds: updatedChapters, updatedAt: now };
+        updatedEntities++;
+        continue;
+      }
+
+      // Merge: update evidence, kind (upgrade from other), aliases
+      const mergedEv        = mergeEvidence(existing.evidence, [ev]);
+      const updatedChapters = [...new Set([...existing.chapterIds, chapterId])];
+      const mergedKind: WorldEntityKind =
+        existing.kind === "other" ? mapEntityKind(extracted.kind) : existing.kind;
+
+      // Merge in new aliases (stored in metadata-like field on entity — we add
+      // to the index but WorldEntity has no aliases field; track via knownEntities)
+      entities[idx] = {
+        ...existing,
+        kind:       mergedKind,
+        evidence:   mergedEv,
+        chapterIds: updatedChapters,
+        lastDerivedAt: now,
+        updatedAt:  now,
+      };
+
+      // Update index for relationship resolution
+      labelToId.set(normLabel(existing.label), existing.id);
+      for (const alias of extracted.aliases) {
+        labelToId.set(normLabel(alias), existing.id);
+      }
+
+      updatedEntities++;
+    } else {
+      // New entity
+      const worldKind     = mapEntityKind(extracted.kind);
+      const confidence    = extracted.confidence ?? 1;
+      const status: WorldEntityStatus =
+        confidence >= 0.85 ? "confirmed" : "inferred";
+
+      const inferenceNote =
+        status === "inferred"
+          ? `Resonance detected "${extracted.label}" from the chapter but could not confirm it with high confidence (${Math.round(confidence * 100)}%).`
+          : undefined;
+
+      const id = `${normLabel(extracted.label).replace(/\s+/g, "-").slice(0, 30)}-${uid()}`;
+
+      const newEntity: WorldEntity = {
+        id,
+        projectId,
+        label:        extracted.label,
+        kind:         worldKind,
+        status,
+        description:  extracted.summary || undefined,
+        subtype:      undefined,
+        chapterIds:   [chapterId],
+        evidence:     [ev],
+        inferenceNote,
+        lastDerivedAt: now,
+        createdAt:    now,
+        updatedAt:    now,
+      };
+
+      entities.push(newEntity);
+      labelToId.set(normLabel(extracted.label), id);
+      for (const alias of extracted.aliases) {
+        labelToId.set(normLabel(alias), id);
+      }
+
+      // Rebuild index so subsequent entities in the same chapter can resolve
+      index.byLabel.set(normLabel(extracted.label), newEntity);
+      for (const alias of extracted.aliases) {
+        index.byAlias.set(normLabel(alias), newEntity);
+      }
+
+      newEntities++;
+    }
+  }
+
+  /* ── 2. Resolve / upsert relationships ───────────────────────────────── */
+
+  // Build a key→id map of existing relationships for dedup
+  const existingRelKeys = new Map<string, string>(); // "srcId::tgtId::kind" → rel.id
+  for (const r of relationships) {
+    existingRelKeys.set(`${r.sourceId}::${r.targetId}::${r.kind}`, r.id);
+  }
+
+  for (const rel of result.relationships) {
+    const srcId = labelToId.get(normLabel(rel.sourceLabel));
+    const tgtId = labelToId.get(normLabel(rel.targetLabel));
+    if (!srcId || !tgtId || srcId === tgtId) continue;
+
+    const kind    = mapRelKind(rel.relationship);
+    const key     = `${srcId}::${tgtId}::${kind}`;
+    const rev     = `${tgtId}::${srcId}::${kind}`;  // undirected dedup
+    const ev: WorldEvidence = {
+      chapterId,
+      chapterTitle,
+      excerpt: (rel.excerpt ?? "").slice(0, 200),
+    };
+
+    if (existingRelKeys.has(key) || existingRelKeys.has(rev)) {
+      // Merge evidence into existing relationship
+      const relId = existingRelKeys.get(key) ?? existingRelKeys.get(rev)!;
+      const idx   = relationships.findIndex((r) => r.id === relId);
+      if (idx >= 0 && !relationships[idx].locked) {
+        relationships[idx] = {
+          ...relationships[idx],
+          evidence:  mergeEvidence(relationships[idx].evidence, [ev]),
+          updatedAt: now,
+        };
+      }
+      continue;
+    }
+
+    const srcEntity = entities.find((e) => e.id === srcId);
+    const tgtEntity = entities.find((e) => e.id === tgtId);
+    if (!srcEntity || !tgtEntity) continue;
+
+    const confidence = rel.confidence ?? 1;
+    const relStatus: WorldEntityStatus =
+      srcEntity.status === "confirmed" && tgtEntity.status === "confirmed" && confidence >= 0.8
+        ? "confirmed"
+        : "inferred";
+
+    const label = rel.relationship.replace(/-/g, " ");
+
+    const newRel: WorldRelationship = {
+      id:        `rel-${uid()}`,
+      projectId,
+      sourceId:  srcId,
+      targetId:  tgtId,
+      label,
+      kind,
+      status:    relStatus,
+      evidence:  [ev],
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    relationships.push(newRel);
+    existingRelKeys.set(key, newRel.id);
+    newRelationships++;
+  }
+
+  return {
+    state:  { ...state, entities, relationships },
+    newEntities,
+    updatedEntities,
+    newRelationships,
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MARK UNSUPPORTED
+   Entities not seen in ANY chapter of the latest run are marked unsupported.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+function markUnsupported(
+  state: ProjectWorldState,
+  seenIds: Set<string>,
+): { state: ProjectWorldState; unsupportedMarked: number } {
+  let unsupportedMarked = 0;
+  const now = Date.now();
+  const entities = state.entities.map((e) => {
+    if (seenIds.has(e.id) || e.status === "dismissed") return e;
+    if (e.status !== "unsupported") {
+      unsupportedMarked++;
+      return { ...e, status: "unsupported" as WorldEntityStatus, updatedAt: now };
+    }
+    return e;
+  });
+  return { state: { ...state, entities }, unsupportedMarked };
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -695,40 +523,26 @@ function emptyState(projectId: string): ProjectWorldState {
    ═══════════════════════════════════════════════════════════════════════════ */
 
 export interface WorldContextValue {
-  /** All entities for the active project (excluding dismissed) */
-  entities: WorldEntity[];
-  /** All relationships for the active project */
-  relationships: WorldRelationship[];
-  /** Unresolved contradictions */
-  contradictions: WorldContradiction[];
-  /** Whether the context has been hydrated from storage */
-  hydrated: boolean;
-  deriveStatus: WorldDeriveStatus;
+  entities:            WorldEntity[];
+  relationships:       WorldRelationship[];
+  contradictions:      WorldContradiction[];
+  hydrated:            boolean;
+  deriveStatus:        WorldDeriveStatus;
   deriveChangeSummary: string;
-  lastAnalysedAt: number | undefined;
+  lastAnalysedAt:      number | undefined;
 
-  /** Confirm an inferred entity, making it canon */
-  confirmEntity: (id: string) => void;
-  /** Dismiss an inferred entity — will not be re-suggested unless text changes */
-  dismissEntity: (id: string) => void;
-  /** Lock an entity — derivation will not overwrite it */
-  lockEntity: (id: string) => void;
-  /** Unlock an entity — next derivation may update it */
-  unlockEntity: (id: string) => void;
-  /** Writer updates an entity's description / note */
-  updateEntityNote: (id: string, note: string) => void;
-  /** Remove an unsupported entity the writer no longer needs */
+  confirmEntity:         (id: string) => void;
+  dismissEntity:         (id: string) => void;
+  lockEntity:            (id: string) => void;
+  unlockEntity:          (id: string) => void;
+  updateEntityNote:      (id: string, note: string) => void;
   removeUnsupportedEntity: (id: string) => void;
 
-  /** Confirm an inferred relationship */
-  confirmRelationship: (id: string) => void;
-  /** Dismiss an inferred relationship */
-  dismissRelationship: (id: string) => void;
+  confirmRelationship:   (id: string) => void;
+  dismissRelationship:   (id: string) => void;
 
-  /** Resolve a contradiction — "keep" existing, "replace" with new */
-  resolveContradiction: (id: string, resolution: "keep" | "replace") => void;
+  resolveContradiction:  (id: string, resolution: "keep" | "replace") => void;
 
-  /** Manually trigger analysis of the active project's chapters */
   runDerivation: () => void;
 }
 
@@ -745,17 +559,25 @@ export function WorldProvider({
   children: React.ReactNode;
   activeProjectId?: string;
 }) {
-  const [allStates, setAllStates] = useState<Record<string, ProjectWorldState>>(() =>
-    loadAllWorldStates(),
+  const [allStates, setAllStates] = useState<Record<string, ProjectWorldState>>(
+    () => loadAllWorldStates(),
   );
-  const [hydrated, setHydrated] = useState(false);
-  const [deriveStatus, setDeriveStatus] = useState<WorldDeriveStatus>("idle");
+  const [hydrated,            setHydrated]            = useState(false);
+  const [deriveStatus,        setDeriveStatus]        = useState<WorldDeriveStatus>("idle");
   const [deriveChangeSummary, setDeriveChangeSummary] = useState("");
 
-  useEffect(() => { setHydrated(true); }, []);
+  // Hydration — runs once; setState only via the timeout callback so the rule
+  // (no synchronous setState in effect body) is satisfied.
+  useEffect(() => {
+    const t = setTimeout(() => setHydrated(true), 0);
+    return () => clearTimeout(t);
+  }, []);
 
   const projectState = useMemo(
-    () => (activeProjectId ? (allStates[activeProjectId] ?? emptyState(activeProjectId)) : emptyState("")),
+    () =>
+      activeProjectId
+        ? (allStates[activeProjectId] ?? emptyState(activeProjectId))
+        : emptyState(""),
     [allStates, activeProjectId],
   );
 
@@ -785,42 +607,132 @@ export function WorldProvider({
     setDeriveStatus("running");
     setDeriveChangeSummary("");
 
-    setTimeout(() => {
-      const chapters = loadJSON<RawChapter[]>(CHAPTERS_SK, [])
-        .filter((c) => c.projectId === activeProjectId)
-        .sort((a, b) => a.order - b.order);
+    // Load chapters inside the callback so we always read the latest state
+    const chapters = loadJSON<RawChapter[]>(CHAPTERS_SK, [])
+      .filter((c) => c.projectId === activeProjectId)
+      .sort((a, b) => a.order - b.order)
+      .filter((c) => c.content?.trim());
 
-      if (chapters.every((c) => !c.content)) {
-        setDeriveStatus("done");
-        setDeriveChangeSummary("No written content yet.");
-        return;
+    if (chapters.length === 0) {
+      setDeriveStatus("done");
+      setDeriveChangeSummary("No written content yet.");
+      return;
+    }
+
+    const existing     = allStates[activeProjectId] ?? emptyState(activeProjectId);
+    const fp           = manuscriptFingerprint(chapters);
+
+    if (fp === existing.lastFingerprint && existing.entities.length > 0) {
+      setDeriveStatus("done");
+      setDeriveChangeSummary("No changes since last analysis.");
+      return;
+    }
+
+    // Kick off async extraction
+    (async () => {
+      let state = existing;
+      let totalNew      = 0;
+      let totalUpdated  = 0;
+      let totalRels     = 0;
+      const seenEntityIds = new Set<string>();
+
+      // Pass known entities to each subsequent chapter call so the model can
+      // match against them — grows as extraction proceeds
+      const knownEntities = () =>
+        state.entities
+          .filter((e) => e.status !== "dismissed")
+          .map((e) => ({
+            label:   e.label,
+            kind:    e.kind,
+            aliases: [] as string[],
+          }));
+
+      for (const ch of chapters) {
+        const text = htmlToText(ch.content);
+        if (!text.trim()) continue;
+
+        try {
+          const result = await extractChapter(
+            ch.id,
+            ch.title,
+            text,
+            knownEntities(),
+          );
+
+          const applied = applyChapterExtraction(
+            activeProjectId,
+            state,
+            ch.id,
+            ch.title,
+            result,
+          );
+
+          state            = applied.state;
+          totalNew        += applied.newEntities;
+          totalUpdated    += applied.updatedEntities;
+          totalRels       += applied.newRelationships;
+
+          // Track which entity ids were seen/touched in this run
+          for (const e of state.entities) {
+            if (e.chapterIds.includes(ch.id)) seenEntityIds.add(e.id);
+          }
+
+          // Emit character entities + relationships from this chapter for
+          // CharactersContext to consume — avoids a second manuscript read.
+          // Relationships are needed so character.relationships stays in sync
+          // with the world graph edges.
+          const charEntities = result.entities.filter((e) => e.kind === "character");
+          // Include relationships where at least one end is a character entity
+          const charLabelsNorm = new Set(
+            charEntities.map((e) => e.label.toLowerCase()),
+          );
+          const charRelationships = result.relationships.filter(
+            (r) =>
+              charLabelsNorm.has(r.sourceLabel.toLowerCase()) ||
+              charLabelsNorm.has(r.targetLabel.toLowerCase()),
+          );
+          if (charEntities.length > 0) {
+            window.dispatchEvent(
+              new CustomEvent("resonance:entitiesExtracted", {
+                detail: {
+                  projectId:    activeProjectId,
+                  chapterId:    ch.id,
+                  chapterTitle: ch.title,
+                  entities:     charEntities,
+                  relationships: charRelationships,
+                },
+              }),
+            );
+          }
+        } catch (err) {
+          console.error("[WorldContext] extraction error:", err);
+          // Continue with other chapters even if one fails
+        }
       }
 
-      const existing = allStates[activeProjectId] ?? emptyState(activeProjectId);
-      const fp = manuscriptFingerprint(chapters);
-      if (fp === existing.lastFingerprint && existing.entities.length > 0) {
-        setDeriveStatus("done");
-        setDeriveChangeSummary("No changes since last analysis.");
-        return;
-      }
+      // Mark entities whose supporting text is gone as unsupported
+      const { state: finalState, unsupportedMarked } = markUnsupported(
+        state,
+        seenEntityIds,
+      );
 
-      const { state, summary } = runWorldDerivation({
-        projectId: activeProjectId,
-        chapters,
-        existingState: existing,
-      });
+      const withFingerprint: ProjectWorldState = {
+        ...finalState,
+        lastFingerprint: fp,
+        lastAnalysedAt:  Date.now(),
+      };
 
-      commitState(state);
+      commitState(withFingerprint);
 
       const parts: string[] = [];
-      if (summary.newEntities > 0)      parts.push(`${summary.newEntities} new`);
-      if (summary.updatedEntities > 0)  parts.push(`${summary.updatedEntities} updated`);
-      if (summary.newRelationships > 0) parts.push(`${summary.newRelationships} new connections`);
-      if (summary.unsupportedMarked > 0) parts.push(`${summary.unsupportedMarked} no longer supported`);
-      if (summary.newContradictions > 0) parts.push(`${summary.newContradictions} discrepancies`);
+      if (totalNew > 0)          parts.push(`${totalNew} new`);
+      if (totalUpdated > 0)      parts.push(`${totalUpdated} updated`);
+      if (totalRels > 0)         parts.push(`${totalRels} new connections`);
+      if (unsupportedMarked > 0) parts.push(`${unsupportedMarked} no longer supported`);
       setDeriveChangeSummary(parts.length ? parts.join(", ") + "." : "No new changes.");
       setDeriveStatus("done");
-    }, 80);
+    })();
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProjectId, allStates]);
 
@@ -863,7 +775,7 @@ export function WorldProvider({
     const state = allStates[activeProjectId] ?? emptyState(activeProjectId);
     commitState({
       ...state,
-      entities: state.entities.filter((e) => e.id !== id),
+      entities:      state.entities.filter((e) => e.id !== id),
       relationships: state.relationships.filter(
         (r) => r.sourceId !== id && r.targetId !== id,
       ),
@@ -910,19 +822,11 @@ export function WorldProvider({
   /* ── Auto-scan when chapters change ─────────────────────────────────── */
 
   const runDerivationRef = useRef(runDerivation);
-  useRef(() => { runDerivationRef.current = runDerivation; });
-
-  useEffect(() => {
-    runDerivationRef.current = runDerivation;
-  }, [runDerivation]);
+  useEffect(() => { runDerivationRef.current = runDerivation; }, [runDerivation]);
 
   useEffect(() => {
     if (!activeProjectId) return;
-
-    function onUpdate() {
-      runDerivationRef.current();
-    }
-
+    function onUpdate() { runDerivationRef.current(); }
     window.addEventListener("resonance:chaptersUpdated", onUpdate);
     return () => window.removeEventListener("resonance:chaptersUpdated", onUpdate);
   }, [activeProjectId]);

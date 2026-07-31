@@ -15,7 +15,6 @@ import {
 } from "react";
 import {
   Check,
-  Palette,
   Plus,
   X,
 } from "lucide-react";
@@ -345,6 +344,18 @@ export function EditCharacterModal({
 
   const tabLabel = (tab: EditTab) => isDraft && tab === "Arc" ? "Story Impact" : tab;
 
+  // Defined before return so the linter does not flag .current access inside JSX
+  const profileFields: { label: string; value: string; set: (v: string) => void; placeholder?: string }[] = [
+    { label: "Name",        value: name,        set: (v) => { setName(v);        markEdited("name"); } },
+    { label: "Role",        value: role,        set: (v) => { setRole(v);        markEdited("role"); },        placeholder: "e.g. Protagonist" },
+    { label: "Age",         value: age,         set: (v) => { setAge(v);         markEdited("age"); },         placeholder: "e.g. 21" },
+    { label: "Occupation",  value: occupation,  set: (v) => { setOccupation(v);  markEdited("occupation"); },  placeholder: "e.g. Relic Runner" },
+    { label: "Origin",      value: origin,      set: (v) => { setOrigin(v);      markEdited("origin"); } },
+    { label: "Affiliation", value: affiliation, set: (v) => { setAffiliation(v); markEdited("affiliation"); } },
+    { label: "Status",      value: status,      set: (v) => { setStatus(v);      markEdited("status"); } },
+    { label: "Tags (comma separated)", value: tagsRaw, set: (v) => { setTagsRaw(v); markEdited("traits"); }, placeholder: "Brave, Empathic, …" },
+  ];
+
   return (
     <Modal onClose={onClose} wide>
       <h2 className="font-display text-xl text-gold-1">Edit — {character.name}</h2>
@@ -367,16 +378,7 @@ export function EditCharacterModal({
         {/* Profile */}
         {activeTab === "Profile" && (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {[
-              { label: "Name", value: name, set: (v: string) => { setName(v); markEdited("name"); } },
-              { label: "Role", value: role, set: (v: string) => { setRole(v); markEdited("role"); }, placeholder: "e.g. Protagonist" },
-              { label: "Age",  value: age,  set: (v: string) => { setAge(v); markEdited("age"); }, placeholder: "e.g. 21" },
-              { label: "Occupation", value: occupation, set: (v: string) => { setOccupation(v); markEdited("occupation"); }, placeholder: "e.g. Relic Runner" },
-              { label: "Origin",      value: origin,      set: (v: string) => { setOrigin(v); markEdited("origin"); } },
-              { label: "Affiliation", value: affiliation, set: (v: string) => { setAffiliation(v); markEdited("affiliation"); } },
-              { label: "Status",      value: status,      set: (v: string) => { setStatus(v); markEdited("status"); } },
-              { label: "Tags (comma separated)", value: tagsRaw, set: (v: string) => { setTagsRaw(v); markEdited("traits"); }, placeholder: "Brave, Empathic, …" },
-            ].map(({ label, value, set, placeholder }) => (
+            {profileFields.map(({ label, value, set, placeholder }) => (
               <div key={label} className="flex flex-col gap-1.5">
                 <FieldLabel>{label}</FieldLabel>
                 <TextInput value={value} onChange={set} placeholder={placeholder} />
@@ -500,8 +502,9 @@ export function EditCharacterModal({
 
 export function NewCharacterModal({ onClose }: { onClose: () => void }) {
   const { addCharacter, allCharacters, updateCharacter } = useCharacters();
-  const [step, setStep] = useState<"choose" | "form">("choose");
-  const [isDraft, setIsDraft] = useState(false);
+  // New Character always creates a Draft. Established characters come from the
+  // manuscript — they need no creation form.
+  const isDraft = true;
 
   // Infer the active project from localStorage
   const projectId = (() => {
@@ -599,44 +602,14 @@ export function NewCharacterModal({ onClose }: { onClose: () => void }) {
     onClose();
   }
 
-  const tabLabel = (tab: EditTab) => isDraft && tab === "Arc" ? "Story Impact" : tab;
-
-  if (step === "choose") {
-    return (
-      <Modal onClose={onClose}>
-        <h2 className="font-display text-xl text-gold-1">New Character</h2>
-        <p className="mt-2 text-sm text-ink/60">
-          Is this a fully established character or an early draft?
-        </p>
-        <div className="mt-5 grid grid-cols-2 gap-4">
-          <button
-            onClick={() => { setIsDraft(false); setStep("form"); }}
-            className="flex flex-col gap-2 rounded-xl border border-gold-3/25 bg-bg-0 p-5 text-left transition-colors hover:border-gold-2/50"
-          >
-            <span className="font-display text-base text-gold-1">Established</span>
-            <span className="text-xs text-ink/50">
-              A character with a defined role and place in the story.
-            </span>
-          </button>
-          <button
-            onClick={() => { setIsDraft(true); setStep("form"); }}
-            className="flex flex-col gap-2 rounded-xl border border-gold-3/25 bg-bg-0 p-5 text-left transition-colors hover:border-gold-2/50"
-          >
-            <span className="font-display text-base text-gold-1">Draft</span>
-            <span className="text-xs text-ink/50">
-              An early idea — fill in what you know and evaluate how they fit.
-            </span>
-          </button>
-        </div>
-      </Modal>
-    );
-  }
+  const tabLabel = (tab: EditTab) => tab === "Arc" ? "Story Impact" : tab;
 
   return (
     <Modal onClose={onClose} wide>
-      <h2 className="font-display text-xl text-gold-1">
-        {isDraft ? "New Draft Character" : "New Established Character"}
-      </h2>
+      <h2 className="font-display text-xl text-gold-1">New Draft Character</h2>
+      <p className="mt-1 text-sm text-ink/50">
+        Established characters appear automatically when you write them into a chapter.
+      </p>
 
       <div className="mt-4 flex gap-5 overflow-x-auto border-b border-gold-3/20 pb-px">
         {(["Profile", "Overview", "Relationships", "Arc", "Notes"] as EditTab[]).map((tab) => (
@@ -763,19 +736,14 @@ export function NewCharacterModal({ onClose }: { onClose: () => void }) {
         )}
       </div>
 
-      <div className="mt-6 flex items-center justify-between">
-        <button onClick={() => setStep("choose")} className="text-sm text-ink/50 hover:text-ink">
-          ← Back
+      <div className="mt-6 flex justify-end gap-3">
+        <button onClick={onClose} className="rounded-full border border-gold-3/30 px-4 py-2 text-sm text-ink hover:border-gold-2/50">
+          Discard
         </button>
-        <div className="flex gap-3">
-          <button onClick={onClose} className="rounded-full border border-gold-3/30 px-4 py-2 text-sm text-ink hover:border-gold-2/50">
-            {isDraft ? "Discard" : "Cancel"}
-          </button>
-          <button onClick={handleSave} disabled={!name.trim()}
-            className="rounded-full bg-gold-2 px-4 py-2 text-sm font-medium text-bg-0 hover:bg-gold-1 disabled:opacity-40">
-            {isDraft ? "Keep Character" : "Add Character"}
-          </button>
-        </div>
+        <button onClick={handleSave} disabled={!name.trim()}
+          className="rounded-full bg-gold-2 px-4 py-2 text-sm font-medium text-bg-0 hover:bg-gold-1 disabled:opacity-40">
+          Keep Draft
+        </button>
       </div>
     </Modal>
   );
