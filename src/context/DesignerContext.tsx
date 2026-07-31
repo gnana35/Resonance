@@ -249,32 +249,38 @@ export function DesignerProvider({
   projectId: string;
   children: React.ReactNode;
 }) {
-  const [designs, setDesigns] = useState<Design[]>(() =>
-    load<Design[]>(SK.designs(projectId), [])
-  );
-  const [layers, setLayers] = useState<Layer[]>(() =>
-    load<Layer[]>(SK.layers(projectId), [])
-  );
-  const [assets, setAssets] = useState<Asset[]>(() =>
-    load<Asset[]>(SK.assets(projectId), [])
-  );
-  const [references, setReferences] = useState<Reference[]>(() =>
-    load<Reference[]>(SK.references(projectId), [])
-  );
-  const [activeDesignId, setActiveDesignId] = useState<string | null>(() =>
-    load<string | null>(SK.activeDesign(projectId), null)
-  );
+  // Start empty so the server render and the first client render match; the
+  // real data is loaded from localStorage in the mount effect below. Reading
+  // localStorage in the initializers caused a hydration mismatch on the
+  // designer workspace (server: "No designs yet" vs client: the design).
+  const [designs, setDesigns] = useState<Design[]>([]);
+  const [layers, setLayers] = useState<Layer[]>([]);
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [references, setReferences] = useState<Reference[]>([]);
+  const [activeDesignId, setActiveDesignId] = useState<string | null>(null);
+  const [hydrated, setHydrated] = useState(false);
 
   // Undo/redo stacks (in-memory only — not persisted)
   const [undoStack, setUndoStack] = useState<HistoryEntry[]>([]);
   const [redoStack, setRedoStack] = useState<HistoryEntry[]>([]);
 
-  // Persist to localStorage
-  useEffect(() => { save(SK.designs(projectId), designs); }, [projectId, designs]);
-  useEffect(() => { save(SK.layers(projectId), layers); }, [projectId, layers]);
-  useEffect(() => { save(SK.assets(projectId), assets); }, [projectId, assets]);
-  useEffect(() => { save(SK.references(projectId), references); }, [projectId, references]);
-  useEffect(() => { save(SK.activeDesign(projectId), activeDesignId); }, [projectId, activeDesignId]);
+  // Load persisted state after mount (SSR-safe — see note on the empty init).
+  useEffect(() => {
+    setDesigns(load<Design[]>(SK.designs(projectId), []));
+    setLayers(load<Layer[]>(SK.layers(projectId), []));
+    setAssets(load<Asset[]>(SK.assets(projectId), []));
+    setReferences(load<Reference[]>(SK.references(projectId), []));
+    setActiveDesignId(load<string | null>(SK.activeDesign(projectId), null));
+    setHydrated(true);
+  }, [projectId]);
+
+  // Persist to localStorage — only AFTER hydration, so the empty initial state
+  // doesn't overwrite the saved data before it has been loaded.
+  useEffect(() => { if (hydrated) save(SK.designs(projectId), designs); }, [projectId, designs, hydrated]);
+  useEffect(() => { if (hydrated) save(SK.layers(projectId), layers); }, [projectId, layers, hydrated]);
+  useEffect(() => { if (hydrated) save(SK.assets(projectId), assets); }, [projectId, assets, hydrated]);
+  useEffect(() => { if (hydrated) save(SK.references(projectId), references); }, [projectId, references, hydrated]);
+  useEffect(() => { if (hydrated) save(SK.activeDesign(projectId), activeDesignId); }, [projectId, activeDesignId, hydrated]);
 
   const activeDesign = designs.find((d) => d.id === activeDesignId) ?? null;
 

@@ -490,6 +490,7 @@ function RelationshipsTab({
               <CharacterAvatar
                 name={other.name}
                 avatarColor={other.avatarColor}
+                portraitUrl={other.portraitUrl}
                 className="h-12 w-12 shrink-0 rounded-lg text-lg"
               />
               <div className="min-w-0 flex-1">
@@ -528,6 +529,7 @@ function RelationshipsTab({
               <CharacterAvatar
                 name={otherChar.name}
                 avatarColor={otherChar.avatarColor}
+                portraitUrl={otherChar.portraitUrl}
                 className="h-12 w-12 shrink-0 rounded-lg text-lg"
               />
               <div className="min-w-0 flex-1">
@@ -783,6 +785,7 @@ export default function CharacterDetail({
           <CharacterAvatar
             name={character.name}
             avatarColor={character.avatarColor}
+            portraitUrl={character.portraitUrl}
             className="aspect-[4/5] w-full rounded-2xl text-6xl"
           />
           <h1 className="mt-5 font-display text-3xl text-gold-1">{character.name}</h1>

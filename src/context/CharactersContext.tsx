@@ -468,19 +468,21 @@ export function CharactersProvider({
   activeProjectId?:       string;
   onOpenChapterEvidence?: (chapterId: string) => void;
 }) {
-  const [allCharacters, setAllCharacters] = useState<Character[]>(() => loadCharacters());
+  // Start with server-safe defaults so the first client render matches the
+  // server; the real values are loaded from localStorage in the mount effect
+  // below. Reading localStorage in the initializer causes a hydration mismatch.
+  const [allCharacters, setAllCharacters] = useState<Character[]>([]);
   const [hydrated,            setHydrated]            = useState(false);
   const [deriveStatus,        setDeriveStatus]        = useState<DeriveStatus>("idle");
   const [deriveChangeSummary, setDeriveChangeSummary] = useState("");
-  const [viewMode, setViewModeState] = useState<"grid" | "list">(() => {
-    if (typeof window === "undefined") return "grid";
-    return (localStorage.getItem(VIEW_KEY) as "grid" | "list") ?? "grid";
-  });
+  const [viewMode, setViewModeState] = useState<"grid" | "list">("grid");
 
   // Track IDs deleted this session so extraction doesn't resurrect them
   const deletedIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
+    setAllCharacters(loadCharacters());
+    setViewModeState((localStorage.getItem(VIEW_KEY) as "grid" | "list") ?? "grid");
     const t = setTimeout(() => setHydrated(true), 0);
     return () => clearTimeout(t);
   }, []);

@@ -343,16 +343,22 @@ function DesignerWorkspace() {
   const handleSaveRef  = useRef<(isAutosave?: boolean, opts?: SaveCreatedAssetOpts) => Promise<void>>(() => Promise.resolve());
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
-  /* ── open design from ?design= URL param ── */
+  /* ── open design from ?design= URL param ──
+   * Designs load from localStorage a frame after mount now, so wait until they
+   * are available, then auto-open exactly once. (A previously-active design is
+   * already restored by the context via its persisted activeDesignId.) */
+  const didAutoOpen = useRef(false);
   useEffect(() => {
+    if (didAutoOpen.current || designs.length === 0) return;
+    didAutoOpen.current = true;
     const id = searchParams.get("design");
     if (id && designs.some((d) => d.id === id)) {
       openDesign(id);
-    } else if (!activeDesign && designs.length > 0) {
+    } else if (!activeDesign) {
       openDesign(designs[0].id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [designs]);
 
   /* ── dirty tracking ─────────────────────────────────────────────────────
    * mountedRef:  skip the very first render (context load, not user change)
@@ -752,10 +758,17 @@ function DesignerWorkspace() {
 /* ────────────────────────────────────────────────────────────────────────── */
 
 function DesignerPageInner() {
-  const projectId =
-    (typeof window !== "undefined"
-      ? (localStorage.getItem("resonance:activeProject") ?? "default")
-      : "default");
+  // The whole workspace is driven by localStorage (designs, active design, …),
+  // which is empty on the server. Mount it only on the client so the server and
+  // first client render are identical (both nothing) — this is what prevents
+  // the "Editing: … / Sketch. Create …" hydration mismatch in the header. After
+  // mount the subtree renders fresh on the client, so nothing is ever hydrated.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  if (!mounted) return null;
+
+  const projectId = localStorage.getItem("resonance:activeProject") ?? "default";
   return (
     <DesignerProvider projectId={projectId}>
       <Suspense>

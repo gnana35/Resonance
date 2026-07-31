@@ -3,6 +3,8 @@
 import { TopNav } from "@/components/TopNav";
 import { DesignerSidebar } from "@/components/DesignerSidebar";
 import { ConsistencyProvider } from "@/context/ConsistencyContext";
+import { ToastProvider } from "@/components/Toast";
+import { ChatNotifier } from "@/components/ChatNotifier";
 
 function getActiveProjectId(): string | undefined {
   if (typeof window === "undefined") return undefined;
@@ -18,13 +20,16 @@ export default function DesignerLayout({
 
   return (
     <ConsistencyProvider activeProjectId={activeProjectId}>
-      <div className="min-h-screen bg-bg-0">
-        <TopNav />
-        <div className="flex">
-          <DesignerSidebar />
-          <main className="min-w-0 flex-1">{children}</main>
+      <ToastProvider>
+        <ChatNotifier role="designer" />
+        <div className="min-h-screen bg-bg-0">
+          <TopNav />
+          <div className="flex">
+            <DesignerSidebar />
+            <main className="min-w-0 flex-1">{children}</main>
+          </div>
         </div>
-      </div>
+      </ToastProvider>
     </ConsistencyProvider>
   );
 }

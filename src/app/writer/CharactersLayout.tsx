@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { CharactersProvider } from "@/context/CharactersContext";
 import { WorldProvider } from "@/context/WorldContext";
 import { ToastProvider } from "@/components/Toast";
+import { ChatNotifier } from "@/components/ChatNotifier";
 
 /**
  * Reads the active project id from localStorage and passes it into the
@@ -29,6 +30,7 @@ export function CharactersLayout({
       <WorldProvider activeProjectId={activeProjectId}>
         <ToastProvider>
           <AutoscanBridge />
+          <ChatNotifier role="writer" />
           {children}
         </ToastProvider>
       </WorldProvider>

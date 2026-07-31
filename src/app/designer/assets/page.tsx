@@ -37,6 +37,7 @@ import {
   FileAudio,
   FileText,
   FileVideo,
+  MessagesSquare,
   PenTool,
   Search,
   Send,
@@ -52,10 +53,13 @@ import {
   renameAsset,
   shareAssetWithWriter,
   subscribeAssets,
+  subscribeAssetChat,
   uploadAsset,
   type AssetRecord,
   type AssetValidationStatus,
+  type DesignFeedbackMsg,
 } from "@/lib/assets";
+import { AssetChat } from "@/components/AssetChat";
 import {
   DesignerProvider,
   useDesigner,
@@ -83,9 +87,17 @@ function ValidationBadge({ status }: { status: AssetValidationStatus }) {
   }
   if (status === "needs_revision") {
     return (
-      <span className="flex items-center gap-1 rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-medium text-red-400">
+      <span className="flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-400">
         <XCircle className="h-3 w-3" />
         Needs Revision
+      </span>
+    );
+  }
+  if (status === "rejected") {
+    return (
+      <span className="flex items-center gap-1 rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-medium text-red-400">
+        <XCircle className="h-3 w-3" />
+        Rejected
       </span>
     );
   }
@@ -204,6 +216,54 @@ function DeleteConfirm({
   );
 }
 
+/* ─── asset discussion modal ────────────────────────────────────────────── */
+
+function ChatModal({ record, onClose }: { record: AssetRecord; onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-bg-0/80 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="flex w-full max-w-lg flex-col rounded-2xl border border-violet-3/30 bg-bg-1 p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-1 flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="h-11 w-11 shrink-0 overflow-hidden rounded-lg border border-violet-3/20 bg-bg-0">
+              {record.previewUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={record.previewUrl} alt={record.name} className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center">
+                  <PenTool className="h-5 w-5 text-violet-3/40" />
+                </div>
+              )}
+            </div>
+            <div>
+              <p className="font-display text-lg text-violet-1">{record.name}</p>
+              <p className="text-xs text-ink/45">Conversation with the writer</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="shrink-0 text-ink/40 hover:text-ink">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="mt-3">
+          <AssetChat
+            assetId={record.id}
+            assetName={record.name}
+            characterId={record.characterId}
+            me="designer"
+            accent="violet"
+            emptyHint="No messages yet. The writer's change requests and your replies will appear here."
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ─── card action bar ────────────────────────────────────────────────────── */
 
 function CardActions({
@@ -262,18 +322,24 @@ function downloadRecord(record: AssetRecord) {
 function CreatedCard({
   record,
   inUseBy,
+  chatCount,
   onRename,
   onDelete,
   onShare,
+  onOpenChat,
 }: {
   record: AssetRecord;
   inUseBy: string[];
+  chatCount: number;
   onRename: (id: string, name: string) => void;
   onDelete: (record: AssetRecord, inUseBy: string[]) => void;
   onShare:  (record: AssetRecord) => void;
+  onOpenChat: (record: AssetRecord) => void;
 }) {
   const [renaming, setRenaming] = useState(false);
   const isShared = record.shareStatus === "shared";
+  const needsAttention =
+    record.validationStatus === "needs_revision" || record.validationStatus === "rejected";
 
   return (
     <div className="group flex flex-col rounded-xl border border-violet-3/20 bg-bg-1 transition-colors hover:border-violet-2/30">
@@ -366,6 +432,24 @@ function CreatedCard({
             </>
           )}
         </button>
+
+        {/* Discussion — the writer's feedback thread for this design */}
+        {(isShared || chatCount > 0) && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onOpenChat(record); }}
+            className={`flex w-full items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+              needsAttention
+                ? "border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/15"
+                : "border-violet-3/30 text-ink/60 hover:border-violet-2/50 hover:bg-violet-2/5 hover:text-violet-2"
+            }`}
+          >
+            <MessagesSquare className="h-3.5 w-3.5" />
+            {needsAttention ? "View feedback" : "Discussion"}
+            {chatCount > 0 && (
+              <span className="rounded-full bg-bg-0/40 px-1.5 text-[10px]">{chatCount}</span>
+            )}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -467,6 +551,8 @@ function AssetsPageBody() {
   const [query,        setQuery]        = useState("");
   const [shareToast,   setShareToast]   = useState<string | null>(null);
   const [sharing,      setSharing]      = useState<string | null>(null); // assetId being shared
+  const [chatTarget,   setChatTarget]   = useState<AssetRecord | null>(null);
+  const [chatMsgs,     setChatMsgs]     = useState<DesignFeedbackMsg[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   /* ── real-time Firestore subscription ── */
@@ -477,6 +563,14 @@ function AssetsPageBody() {
     );
     return unsub;
   }, []);
+
+  /* ── design conversations (all assets) → per-asset message counts ── */
+  useEffect(() => subscribeAssetChat((rows) => setChatMsgs(rows)), []);
+  const chatCountByAsset = new Map<string, number>();
+  for (const m of chatMsgs) chatCountByAsset.set(m.assetId, (chatCountByAsset.get(m.assetId) ?? 0) + 1);
+
+  // Keep the open chat modal's record in sync with live asset updates.
+  const chatTargetLive = chatTarget ? assets.find((a) => a.id === chatTarget.id) ?? chatTarget : null;
 
   /* ── derived in-use map (assetId → design titles) ── */
   const inUseMap = new Map<string, string[]>();
@@ -663,9 +757,11 @@ function AssetsPageBody() {
                     key={record.id}
                     record={record}
                     inUseBy={inUseMap.get(record.id) ?? []}
+                    chatCount={chatCountByAsset.get(record.id) ?? 0}
                     onRename={handleRename}
                     onDelete={handleDelete}
                     onShare={handleShare}
+                    onOpenChat={setChatTarget}
                   />
                 ))}
               </div>
@@ -746,6 +842,11 @@ function AssetsPageBody() {
           onConfirm={confirmDelete}
           onCancel={() => setDeleteTarget(null)}
         />
+      )}
+
+      {/* ── Discussion modal ── */}
+      {chatTargetLive && (
+        <ChatModal record={chatTargetLive} onClose={() => setChatTarget(null)} />
       )}
     </div>
   );

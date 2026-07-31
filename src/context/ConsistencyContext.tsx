@@ -141,10 +141,17 @@ export function ConsistencyProvider({
   children: React.ReactNode;
   activeProjectId: string | undefined;
 }) {
-  const [allStates, setAllStates] = useState<AllStates>(() => loadAll());
+  // Start empty so the server render and the first client render match, then
+  // load persisted state after mount. Reading localStorage in the initializer
+  // would make the client's first render differ from the server → hydration
+  // mismatch (the sidebar badge count in particular).
+  const [allStates, setAllStates] = useState<AllStates>({});
   const [hydrated, setHydrated] = useState(false);
 
-  useEffect(() => { setHydrated(true); }, []);
+  useEffect(() => {
+    setAllStates(loadAll());
+    setHydrated(true);
+  }, []);
 
   // Current project state (derived)
   const projectState = useMemo(

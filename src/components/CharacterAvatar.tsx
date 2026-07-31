@@ -23,10 +23,13 @@ function hashIndex(name: string) {
 export function CharacterAvatar({
   name,
   avatarColor,
+  portraitUrl,
   className = "",
 }: {
   name: string;
   avatarColor?: number;
+  /** Approved design artwork — shown in place of the gradient placeholder. */
+  portraitUrl?: string;
   className?: string;
 }) {
   const index =
@@ -34,6 +37,20 @@ export function CharacterAvatar({
       ? avatarColor
       : hashIndex(name);
   const initial = name.trim().charAt(0).toUpperCase();
+
+  if (portraitUrl) {
+    return (
+      <div className={`overflow-hidden ${className}`}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={portraitUrl}
+          alt={name}
+          className="h-full w-full object-cover"
+        />
+      </div>
+    );
+  }
+
   return (
     <div
       className={`flex items-center justify-center bg-gradient-to-br font-display text-gold-1 ${AVATAR_PALETTE[index]} ${className}`}

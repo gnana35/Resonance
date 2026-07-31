@@ -567,16 +567,18 @@ export function WorldProvider({
   children: React.ReactNode;
   activeProjectId?: string;
 }) {
-  const [allStates, setAllStates] = useState<Record<string, ProjectWorldState>>(
-    () => loadAllWorldStates(),
-  );
+  // Start empty so the server render and first client render match; the real
+  // state is loaded from localStorage in the mount effect below. Reading
+  // localStorage in the initializer caused a hydration mismatch.
+  const [allStates, setAllStates] = useState<Record<string, ProjectWorldState>>({});
   const [hydrated,            setHydrated]            = useState(false);
   const [deriveStatus,        setDeriveStatus]        = useState<WorldDeriveStatus>("idle");
   const [deriveChangeSummary, setDeriveChangeSummary] = useState("");
 
-  // Hydration — runs once; setState only via the timeout callback so the rule
-  // (no synchronous setState in effect body) is satisfied.
+  // Load persisted state after mount, then flag hydrated (setState only via the
+  // timeout callback so the no-synchronous-setState-in-effect rule holds).
   useEffect(() => {
+    setAllStates(loadAllWorldStates());
     const t = setTimeout(() => setHydrated(true), 0);
     return () => clearTimeout(t);
   }, []);

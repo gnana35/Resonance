@@ -14,13 +14,14 @@
  */
 
 import { supabase } from "@/lib/supabase";
+import { syncPushBackground } from "@/lib/cloudSync";
 
 /* ─── types ──────────────────────────────────────────────────────────────── */
 
 export type AssetSource = "created" | "uploaded";
 
 export type AssetShareStatus      = "not_shared" | "shared";
-export type AssetValidationStatus = "pending"    | "approved" | "needs_revision";
+export type AssetValidationStatus = "pending"    | "approved" | "needs_revision" | "rejected";
 
 export interface AssetRecord {
   id:               string;
@@ -63,10 +64,46 @@ export interface DesignShareNotif {
   createdAt:   number;   // unix ms
 }
 
+/* ─── design feedback (writer → designer chat) ──────────────────────────── */
+
+/**
+ * When the writer reviews a shared design they can send the designer a note —
+ * either asking for changes ("revision") or rejecting the design outright
+ * ("reject"). That decision is the opening message of a per-asset CHAT THREAD:
+ * both the writer and the designer can then keep replying on the same asset, so
+ * the designer has the full history to reference while reworking the design.
+ */
+
+/** The writer's up-front decision when sending a design back. */
+export type DesignFeedbackKind = "revision" | "reject";
+
+/** Who authored a chat message. */
+export type DesignChatFrom = "writer" | "designer";
+
+/**
+ * Message kind:
+ *   "revision" | "reject" | "approve" — a milestone/decision (rendered as a badge)
+ *   "message"                          — an ordinary chat reply
+ */
+export type DesignChatKind = DesignFeedbackKind | "approve" | "message";
+
+export interface DesignFeedbackMsg {
+  id:        string;
+  assetId:   string;
+  assetName: string;
+  from:      DesignChatFrom;
+  kind:      DesignChatKind;
+  message:   string;
+  createdAt: number;   // unix ms
+}
+
 /* ─── localStorage helpers ───────────────────────────────────────────────── */
 
-const ASSETS_KEY = "resonance:assets:v1";
-const NOTIFS_KEY = "resonance:design-share-notifs:v1";
+const ASSETS_KEY   = "resonance:assets:v1";
+const NOTIFS_KEY   = "resonance:design-share-notifs:v1";
+const FEEDBACK_KEY = "resonance:design-feedback:v1";
+// Per-role read receipts: { [role]: { [assetId]: lastSeenMs } }
+const CHAT_SEEN_KEY = "resonance:chat-seen:v1";
 
 function loadAssets(): AssetRecord[] {
   if (typeof window === "undefined") return [];
@@ -90,6 +127,18 @@ function loadNotifs(): DesignShareNotif[] {
 
 function persistNotifs(notifs: DesignShareNotif[]): void {
   try { localStorage.setItem(NOTIFS_KEY, JSON.stringify(notifs)); } catch { /* quota */ }
+}
+
+function loadFeedback(): DesignFeedbackMsg[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(FEEDBACK_KEY);
+    return raw ? (JSON.parse(raw) as DesignFeedbackMsg[]) : [];
+  } catch { return []; }
+}
+
+function persistFeedback(rows: DesignFeedbackMsg[]): void {
+  try { localStorage.setItem(FEEDBACK_KEY, JSON.stringify(rows)); } catch { /* quota */ }
 }
 
 function uid(): string {
@@ -481,6 +530,231 @@ export function setValidationStatus(
     notifyChange();
   }
   return Promise.resolve();
+}
+
+/**
+ * Send the designer feedback on a shared design.
+ *
+ * "revision" → the writer wants changes; the asset moves to Needs Revision.
+ * "reject"   → the writer is turning the design down; the asset is Rejected.
+ *
+ * The message is appended to a per-asset thread (localStorage) and mirrored to
+ * Supabase as a notification addressed to the designer, so it reaches them the
+ * same way character design requests do.
+ */
+export function sendDesignFeedback(
+  asset: { id: string; name: string; characterId?: string | null },
+  kind: DesignFeedbackKind,
+  message: string,
+): Promise<void> {
+  const now  = Date.now();
+  const text = message.trim();
+
+  // 1. Open the thread with the writer's decision message.
+  appendChatMessage({
+    id:        uid(),
+    assetId:   asset.id,
+    assetName: asset.name,
+    from:      "writer",
+    kind,
+    message:   text,
+    createdAt: now,
+  });
+
+  // 2. Move the asset to the matching validation status.
+  const records = loadAssets();
+  const idx = records.findIndex((r) => r.id === asset.id);
+  if (idx !== -1) {
+    records[idx] = {
+      ...records[idx],
+      validationStatus: kind === "reject" ? "rejected" : "needs_revision",
+      updatedAt:        now,
+    };
+    persistAssets(records);
+  }
+
+  // 3. Mirror to Supabase so the designer is notified.
+  syncPushBackground("app_notifications", [
+    {
+      id:          uid(),
+      recipient:   "designer",
+      type:        kind === "reject" ? "design-rejected" : "design-revision",
+      assetId:     asset.id,
+      characterId: asset.characterId ?? null,
+      message:     text || (kind === "reject" ? `Rejected "${asset.name}"` : `Changes requested on "${asset.name}"`),
+      read:        false,
+      createdAt:   now,
+    },
+  ]);
+
+  notifyChange();
+  return Promise.resolve();
+}
+
+/** Append one message to the per-asset thread (newest kept anywhere in array). */
+function appendChatMessage(msg: DesignFeedbackMsg): void {
+  const rows = loadFeedback();
+  rows.push(msg);
+  persistFeedback(rows);
+}
+
+/**
+ * Post an ordinary chat reply on an asset's thread — used by both the writer
+ * and the designer to keep the conversation going after the initial decision.
+ * Mirrors to Supabase addressed to the OTHER party so they get notified.
+ */
+export function postAssetChatMessage(
+  asset: { id: string; name: string; characterId?: string | null },
+  from: DesignChatFrom,
+  message: string,
+  kind: DesignChatKind = "message",
+): Promise<void> {
+  const text = message.trim();
+  if (!text) return Promise.resolve();
+  const now = Date.now();
+
+  appendChatMessage({
+    id:        uid(),
+    assetId:   asset.id,
+    assetName: asset.name,
+    from,
+    kind,
+    message:   text,
+    createdAt: now,
+  });
+
+  syncPushBackground("app_notifications", [
+    {
+      id:          uid(),
+      recipient:   from === "writer" ? "designer" : "writer",
+      type:        "design-chat",
+      assetId:     asset.id,
+      characterId: asset.characterId ?? null,
+      message:     text,
+      read:        false,
+      createdAt:   now,
+    },
+  ]);
+
+  notifyChange();
+  return Promise.resolve();
+}
+
+/**
+ * Subscribe to an asset's chat thread in CHRONOLOGICAL order (oldest → newest),
+ * the natural order for a conversation view. Pass an assetId to scope to one
+ * asset; omit it to receive every message (used by the designer's inbox).
+ */
+export function subscribeAssetChat(
+  onData: (rows: DesignFeedbackMsg[]) => void,
+  assetId?: string,
+): () => void {
+  if (typeof window === "undefined") return () => {};
+
+  const emit = () => {
+    const all = [...loadFeedback()].sort((a, b) => a.createdAt - b.createdAt);
+    onData(assetId ? all.filter((m) => m.assetId === assetId) : all);
+  };
+  emit();
+
+  window.addEventListener(CHANGE_EVENT, emit);
+  window.addEventListener("storage", emit);
+  return () => {
+    window.removeEventListener(CHANGE_EVENT, emit);
+    window.removeEventListener("storage", emit);
+  };
+}
+
+/**
+ * Subscribe to design feedback the DESIGNER needs to action — the writer's
+ * revision/reject decisions across all assets, newest first. Drives the
+ * "Design Feedback" section of the designer's Notifications page.
+ */
+export function subscribeDesignFeedback(
+  onData: (rows: DesignFeedbackMsg[]) => void,
+): () => void {
+  if (typeof window === "undefined") return () => {};
+
+  const emit = () => {
+    const decisions = [...loadFeedback()]
+      .filter((m) => m.from === "writer" && (m.kind === "revision" || m.kind === "reject"))
+      .sort((a, b) => b.createdAt - a.createdAt);
+    onData(decisions);
+  };
+  emit();
+
+  window.addEventListener(CHANGE_EVENT, emit);
+  window.addEventListener("storage", emit);
+  return () => {
+    window.removeEventListener(CHANGE_EVENT, emit);
+    window.removeEventListener("storage", emit);
+  };
+}
+
+/* ─── chat read receipts / unread notifications ─────────────────────────── */
+
+type ChatSeen = Record<DesignChatFrom, Record<string, number>>;
+
+function loadSeen(): ChatSeen {
+  if (typeof window === "undefined") return { writer: {}, designer: {} };
+  try {
+    const raw = localStorage.getItem(CHAT_SEEN_KEY);
+    const parsed = raw ? (JSON.parse(raw) as Partial<ChatSeen>) : {};
+    return { writer: parsed.writer ?? {}, designer: parsed.designer ?? {} };
+  } catch { return { writer: {}, designer: {} }; }
+}
+
+function persistSeen(seen: ChatSeen): void {
+  try { localStorage.setItem(CHAT_SEEN_KEY, JSON.stringify(seen)); } catch { /* quota */ }
+}
+
+/**
+ * Mark an asset's conversation as read by `role` (called when that side opens
+ * the thread). Clears the unread badge for messages up to now.
+ */
+export function markAssetChatSeen(assetId: string, role: DesignChatFrom): void {
+  const seen = loadSeen();
+  const latest = loadFeedback()
+    .filter((m) => m.assetId === assetId)
+    .reduce((max, m) => Math.max(max, m.createdAt), 0);
+  const next = Math.max(latest, seen[role][assetId] ?? 0);
+  if (next === (seen[role][assetId] ?? 0)) return;   // nothing new — avoid a needless event
+  seen[role] = { ...seen[role], [assetId]: next };
+  persistSeen(seen);
+  notifyChange();
+}
+
+/**
+ * Subscribe to the number of unread INBOUND chat messages for `role` — i.e.
+ * replies written by the other party that this side hasn't opened yet. Drives
+ * the sidebar badge and the new-message toast.
+ */
+export function subscribeUnreadChat(
+  role: DesignChatFrom,
+  onData: (info: { count: number; assetIds: string[]; latest: DesignFeedbackMsg | null }) => void,
+): () => void {
+  if (typeof window === "undefined") return () => {};
+
+  const emit = () => {
+    const seen = loadSeen()[role] ?? {};
+    const unread = loadFeedback().filter(
+      (m) => m.from !== role && m.createdAt > (seen[m.assetId] ?? 0),
+    );
+    const assetIds = [...new Set(unread.map((m) => m.assetId))];
+    const latest = unread.reduce<DesignFeedbackMsg | null>(
+      (a, b) => (!a || b.createdAt > a.createdAt ? b : a),
+      null,
+    );
+    onData({ count: unread.length, assetIds, latest });
+  };
+  emit();
+
+  window.addEventListener(CHANGE_EVENT, emit);
+  window.addEventListener("storage", emit);
+  return () => {
+    window.removeEventListener(CHANGE_EVENT, emit);
+    window.removeEventListener("storage", emit);
+  };
 }
 
 /** Rename an asset. */

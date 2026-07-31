@@ -26,9 +26,8 @@ import {
   type CharacterDesignRequest,
 } from "@/lib/designRequests";
 import {
-  subscribeDesignShareNotifs,
-  markNotifRead,
-  type DesignShareNotif,
+  subscribeDesignFeedback,
+  type DesignFeedbackMsg,
 } from "@/lib/assets";
 import Link from "next/link";
 import {
@@ -41,6 +40,7 @@ import {
   Minus,
   PenTool,
   Plus,
+  RotateCcw,
   X,
   XCircle,
 } from "lucide-react";
@@ -604,7 +604,7 @@ export function DiscrepancyNotificationsPage({
 
   /* Collaboration inbox — only subscribe to the feed this persona uses. */
   const [designRequests, setDesignRequests] = useState<CharacterDesignRequest[]>([]);
-  const [sharedAssets,   setSharedAssets]   = useState<DesignShareNotif[]>([]);
+  const [designFeedback, setDesignFeedback] = useState<DesignFeedbackMsg[]>([]);
 
   useEffect(() => {
     if (role !== "designer") return;
@@ -613,9 +613,10 @@ export function DiscrepancyNotificationsPage({
     );
   }, [role]);
 
+  // Designer: the writer's change requests / rejections on shared designs.
   useEffect(() => {
-    if (role !== "writer") return;
-    return subscribeDesignShareNotifs(setSharedAssets);
+    if (role !== "designer") return;
+    return subscribeDesignFeedback((rows) => setDesignFeedback(rows));
   }, [role]);
 
   // Read the active project id for the graph call (same pattern as every
@@ -759,61 +760,59 @@ export function DiscrepancyNotificationsPage({
         </div>
       )}
 
-      {role === "writer" && sharedAssets.length > 0 && (
+      {/* Designer: the writer's feedback on shared designs — change requests
+          and rejections. The full conversation (and the writer's exact notes)
+          lives on each asset's Discussion thread in the Assets library. */}
+      {role === "designer" && designFeedback.length > 0 && (
         <div className="mb-8 flex flex-col gap-3">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-ink/40">
-            New Designs Shared With You
+            Design Feedback
           </h2>
-          {sharedAssets.map((notif) => (
-            <div
-              key={notif.id}
-              className={`flex items-start gap-4 rounded-2xl border bg-bg-1 p-5 ${
-                notif.read ? "border-gold-3/20" : "border-gold-2/50"
-              }`}
-            >
-              {notif.previewUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={notif.previewUrl}
-                  alt={notif.assetName}
-                  className="h-20 w-20 shrink-0 rounded-lg object-cover"
-                />
-              ) : (
-                <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-lg bg-bg-0">
-                  <PenTool className="h-6 w-6 text-gold-2/40" />
+          {designFeedback.map((fb) => {
+            const rejected = fb.kind === "reject";
+            return (
+              <div
+                key={fb.id}
+                className={`rounded-2xl border bg-bg-1 p-5 ${
+                  rejected ? "border-red-500/40" : "border-amber-500/40"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    {rejected ? (
+                      <XCircle className="h-4 w-4 shrink-0 text-red-400" />
+                    ) : (
+                      <RotateCcw className="h-4 w-4 shrink-0 text-amber-400" />
+                    )}
+                    <p className={`font-display text-lg ${rejected ? "text-red-300" : "text-amber-300"}`}>
+                      {rejected ? "Design rejected" : "Changes requested"}: {fb.assetName}
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-xs text-ink/40">{timeAgo(fb.createdAt)}</span>
                 </div>
-              )}
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="font-display text-lg text-gold-1">{notif.assetName}</p>
-                  <span className="shrink-0 text-xs text-ink/40">{timeAgo(notif.createdAt)}</span>
-                </div>
-                <p className="mt-1 text-sm text-ink/60">
-                  The designer shared a new design for your review.
-                </p>
-                {notif.description && (
-                  <p className="mt-1 text-sm text-ink/80">{notif.description}</p>
+
+                {fb.message ? (
+                  <p className="mt-3 whitespace-pre-wrap text-sm text-ink/80">
+                    &ldquo;{fb.message}&rdquo;
+                  </p>
+                ) : (
+                  <p className="mt-3 text-sm italic text-ink/40">
+                    The writer didn&rsquo;t add a note.
+                  </p>
                 )}
-                <div className="mt-3 flex items-center gap-3">
+
+                <div className="mt-4 flex items-center gap-3">
                   <Link
                     href="/designer/assets"
-                    onClick={() => markNotifRead(notif.id)}
-                    className="rounded-full bg-gold-2/20 px-4 py-2 text-sm font-medium text-gold-1 hover:bg-gold-2/30"
+                    className="flex items-center gap-2 rounded-full bg-violet-2/20 px-4 py-2 text-sm font-medium text-violet-1 hover:bg-violet-2/30"
                   >
-                    Review design
+                    <PenTool className="h-3.5 w-3.5" />
+                    Open discussion & revise
                   </Link>
-                  {!notif.read && (
-                    <button
-                      onClick={() => markNotifRead(notif.id)}
-                      className="text-xs text-ink/50 hover:text-ink"
-                    >
-                      Mark read
-                    </button>
-                  )}
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

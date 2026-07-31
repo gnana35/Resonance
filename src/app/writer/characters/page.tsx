@@ -224,6 +224,7 @@ function GridCard({
           <CharacterAvatar
             name={character.name}
             avatarColor={character.avatarColor}
+            portraitUrl={character.portraitUrl}
             className="h-16 w-16 shrink-0 rounded-xl text-2xl"
           />
           <div className="min-w-0">
@@ -262,6 +263,7 @@ function ListCard({
         <CharacterAvatar
           name={character.name}
           avatarColor={character.avatarColor}
+          portraitUrl={character.portraitUrl}
           className="h-12 w-12 shrink-0 rounded-lg text-lg"
         />
         <div className="min-w-0 flex-1">

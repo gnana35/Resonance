@@ -120,6 +120,12 @@ export type Character = {
   sentToDesigner?: boolean;
   /** Asset IDs the designer has shared back with the writer. */
   designerSharedAssetIds?: string[];
+  /**
+   * Portrait image for this character. Set when the writer accepts a design the
+   * designer made for them — the approved artwork replaces the placeholder
+   * avatar everywhere the character is shown.
+   */
+  portraitUrl?: string;
 
   /** Which fields the writer has hand-edited — derivation must not touch these */
   lockedFields?: FieldLocks;

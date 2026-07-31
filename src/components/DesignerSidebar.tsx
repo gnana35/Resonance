@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -10,10 +11,11 @@ import {
   Settings,
 } from "lucide-react";
 import { useConsistency } from "@/context/ConsistencyContext";
+import { subscribeUnreadChat } from "@/lib/assets";
 
 const NAV_ITEMS = [
   { href: "/designer",              label: "Designer's Space", icon: Palette,       exact: true },
-  { href: "/designer/assets",       label: "Assets",           icon: Folder                    },
+  { href: "/designer/assets",       label: "Assets",           icon: Folder,        chatBadge: true },
   { href: "/designer/research",     label: "Research",         icon: FlaskConical              },
   { href: "/designer/notifications",label: "Notifications",    icon: Bell,          badge: true },
   { href: "/designer/settings",     label: "Settings",         icon: Settings                  },
@@ -22,6 +24,12 @@ const NAV_ITEMS = [
 export function DesignerSidebar() {
   const pathname = usePathname();
   const { pendingCount } = useConsistency();
+  const [chatUnread, setChatUnread] = useState(0);
+
+  useEffect(
+    () => subscribeUnreadChat("designer", ({ count }) => setChatUnread(count)),
+    [],
+  );
 
   return (
     <aside className="flex w-64 shrink-0 flex-col border-r border-violet-3/30 px-4 py-6 md:w-72">
@@ -31,6 +39,7 @@ export function DesignerSidebar() {
             ? pathname === item.href
             : pathname.startsWith(item.href);
           const Icon = item.icon;
+          const count = item.badge ? pendingCount : item.chatBadge ? chatUnread : 0;
           return (
             <Link
               key={item.href}
@@ -43,9 +52,9 @@ export function DesignerSidebar() {
             >
               <Icon className="h-4 w-4 shrink-0" />
               <span className="flex-1">{item.label}</span>
-              {item.badge && pendingCount > 0 && (
+              {count > 0 && (
                 <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-violet-2 px-1 text-[10px] font-bold text-bg-0">
-                  {pendingCount > 99 ? "99+" : pendingCount}
+                  {count > 99 ? "99+" : count}
                 </span>
               )}
             </Link>

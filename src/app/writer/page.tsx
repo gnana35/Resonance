@@ -861,6 +861,14 @@ export default function WriterPage() {
   /* ── View state ──────────────────────────────────────────────────────── */
   const [view, setView] = useState<"outline" | "editor">("outline");
 
+  /* ── Hydration gate ───────────────────────────────────────────────────────
+   * All the state above is seeded from localStorage, which is empty on the
+   * server. Rendering that mismatched content during hydration triggers a React
+   * hydration error, so we render nothing until mounted — then the first client
+   * render matches the server (both empty) and the real content appears. */
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   /* ── Tab state ───────────────────────────────────────────────────────── */
   const [openTabs, setOpenTabs] = useState<OpenTab[]>(() => {
     const saved = loadJSON<OpenTab[]>(SK.openTabs, []);
@@ -1122,6 +1130,11 @@ export default function WriterPage() {
   }
 
   /* ── Render ──────────────────────────────────────────────────────────── */
+  // Match the server's empty render until mounted (see Hydration gate above).
+  if (!mounted) {
+    return <div className="flex h-full min-h-screen flex-col px-6 py-8 md:px-10" />;
+  }
+
   return (
     <div className="flex h-full min-h-screen flex-col px-6 py-8 md:px-10">
 

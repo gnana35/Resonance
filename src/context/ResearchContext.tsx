@@ -274,27 +274,33 @@ export function ResearchProvider({
   projectId: string;
   children: React.ReactNode;
 }) {
-  const [sessions, setSessions] = useState<ChatSession[]>(() =>
-    loadJSON<ChatSession[]>(SK.sessions(projectId), [])
-  );
+  // Start empty so the server render and first client render match; load the
+  // persisted state after mount. Reading localStorage in the initializers
+  // caused a hydration mismatch.
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
-  const [suppressions, setSuppressions] = useState<SuppressionMap>(() =>
-    loadJSON<SuppressionMap>(SK.suppressions(projectId), {})
-  );
-  const [savedItems, setSavedItems] = useState<SavedResearchItem[]>(() =>
-    loadJSON<SavedResearchItem[]>(SK.saved(projectId), [])
-  );
-  const [contextExclusions, setContextExclusionsState] = useState<Set<string>>(
-    () => new Set(loadJSON<string[]>(SK.exclusions(projectId), []))
-  );
+  const [suppressions, setSuppressions] = useState<SuppressionMap>({});
+  const [savedItems, setSavedItems] = useState<SavedResearchItem[]>([]);
+  const [contextExclusions, setContextExclusionsState] = useState<Set<string>>(new Set());
+  const [hydrated, setHydrated] = useState(false);
 
-  // Persist whenever state changes
-  useEffect(() => { saveJSON(SK.sessions(projectId), sessions); }, [projectId, sessions]);
-  useEffect(() => { saveJSON(SK.suppressions(projectId), suppressions); }, [projectId, suppressions]);
-  useEffect(() => { saveJSON(SK.saved(projectId), savedItems); }, [projectId, savedItems]);
+  // Load persisted state after mount.
   useEffect(() => {
-    saveJSON(SK.exclusions(projectId), [...contextExclusions]);
-  }, [projectId, contextExclusions]);
+    setSessions(loadJSON<ChatSession[]>(SK.sessions(projectId), []));
+    setSuppressions(loadJSON<SuppressionMap>(SK.suppressions(projectId), {}));
+    setSavedItems(loadJSON<SavedResearchItem[]>(SK.saved(projectId), []));
+    setContextExclusionsState(new Set(loadJSON<string[]>(SK.exclusions(projectId), [])));
+    setHydrated(true);
+  }, [projectId]);
+
+  // Persist whenever state changes — only after hydration, so the empty initial
+  // state doesn't overwrite saved data before it has been loaded.
+  useEffect(() => { if (hydrated) saveJSON(SK.sessions(projectId), sessions); }, [projectId, sessions, hydrated]);
+  useEffect(() => { if (hydrated) saveJSON(SK.suppressions(projectId), suppressions); }, [projectId, suppressions, hydrated]);
+  useEffect(() => { if (hydrated) saveJSON(SK.saved(projectId), savedItems); }, [projectId, savedItems, hydrated]);
+  useEffect(() => {
+    if (hydrated) saveJSON(SK.exclusions(projectId), [...contextExclusions]);
+  }, [projectId, contextExclusions, hydrated]);
 
   const activeSession = sessions.find((s) => s.id === activeChatId) ?? null;
 

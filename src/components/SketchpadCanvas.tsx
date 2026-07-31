@@ -190,6 +190,34 @@ function renderLayerToCtx(
   ctx.restore();
 }
 
+/**
+ * Composite every visible layer onto a transparent offscreen buffer sized to
+ * the design. Rendering the layers here (rather than straight onto the visible
+ * canvas over the background) means an eraser stroke's `destination-out` only
+ * cuts through the LAYER STACK — so the erased area reveals the design's
+ * background when the buffer is later drawn over it, instead of punching a
+ * transparent hole to the dark canvas frame.
+ */
+function compositeLayersToBuffer(
+  buffer: HTMLCanvasElement,
+  W: number,
+  H: number,
+  layers: Layer[],
+  loadedImages: Map<string, HTMLImageElement>,
+): HTMLCanvasElement {
+  if (buffer.width !== W) buffer.width = W;
+  if (buffer.height !== H) buffer.height = H;
+  const bctx = buffer.getContext("2d");
+  if (!bctx) return buffer;
+  bctx.clearRect(0, 0, W, H);
+  const sorted = [...layers].sort((a, b) => a.order - b.order);
+  for (const layer of sorted) {
+    if (!layer.visible) continue;
+    renderLayerToCtx(bctx, layer, loadedImages);
+  }
+  return buffer;
+}
+
 // ─── component ────────────────────────────────────────────────────────────────
 
 export const SketchpadCanvas = forwardRef<SketchpadHandle, SketchpadCanvasProps>(
@@ -216,7 +244,13 @@ export const SketchpadCanvas = forwardRef<SketchpadHandle, SketchpadCanvasProps>
     } = useDesigner();
 
     const canvasRef = useRef<HTMLCanvasElement>(null);
-    const offscreenRef = useRef<OffscreenCanvas | null>(null);
+    // Transparent buffer used to composite layers before drawing them over the
+    // background — see compositeLayersToBuffer for why the eraser needs this.
+    const bufferRef = useRef<HTMLCanvasElement | null>(null);
+    const getBuffer = () => {
+      if (!bufferRef.current) bufferRef.current = document.createElement("canvas");
+      return bufferRef.current;
+    };
     const loadedImages = useRef<Map<string, HTMLImageElement>>(new Map());
 
     // In-progress gesture state (not stored in React state to avoid render thrash)
@@ -273,12 +307,10 @@ export const SketchpadCanvas = forwardRef<SketchpadHandle, SketchpadCanvasProps>
       ctx.translate(panX, panY);
       ctx.scale(scale, scale);
 
-      // Render layers bottom→top
-      const sorted = [...activeLayers].sort((a, b) => a.order - b.order);
-      for (const layer of sorted) {
-        if (!layer.visible) continue;
-        renderLayerToCtx(ctx, layer, loadedImages.current);
-      }
+      // Composite layers on a transparent buffer, then draw over the background
+      // so eraser strokes reveal the background rather than the dark frame.
+      const buffer = compositeLayersToBuffer(getBuffer(), W, H, activeLayers, loadedImages.current);
+      ctx.drawImage(buffer, 0, 0);
 
       // Render live preview shape
       if (previewShape) {
@@ -302,7 +334,7 @@ export const SketchpadCanvas = forwardRef<SketchpadHandle, SketchpadCanvasProps>
       }
 
       ctx.restore();
-    }, [activeLayers, design, zoom, panX, panY, previewShape]);
+    }, [activeLayers, design, zoom, panX, panY, previewShape, W, H]);
 
     useEffect(() => { redraw(); }, [redraw]);
 
@@ -318,11 +350,12 @@ export const SketchpadCanvas = forwardRef<SketchpadHandle, SketchpadCanvasProps>
         const ctx = tmp.getContext("2d")!;
         ctx.fillStyle = design?.background ?? "#f4f1ea";
         ctx.fillRect(0, 0, W, H);
-        const sorted = [...activeLayers].sort((a, b) => a.order - b.order);
-        for (const layer of sorted) {
-          if (!layer.visible) continue;
-          renderLayerToCtx(ctx, layer, loadedImages.current);
-        }
+        // Composite layers on a transparent buffer first so erased areas show
+        // the background instead of a transparent hole.
+        const buffer = compositeLayersToBuffer(
+          document.createElement("canvas"), W, H, activeLayers, loadedImages.current,
+        );
+        ctx.drawImage(buffer, 0, 0);
         return new Promise((res, rej) => tmp.toBlob((b) => b ? res(b) : rej(new Error("toBlob null")), "image/png"));
       },
       async getExportBlob(): Promise<Blob> {
@@ -451,9 +484,12 @@ export const SketchpadCanvas = forwardRef<SketchpadHandle, SketchpadCanvasProps>
           ctx.scale(scale, scale);
           const pts = currentPoints.current;
           if (pts.length >= 2) {
-            ctx.globalCompositeOperation = tool === "eraser" ? "destination-out" : "source-over";
+            // Preview the eraser by painting the background colour (matching how
+            // the committed erase reveals the background) rather than punching a
+            // hole through to the dark canvas frame.
+            ctx.globalCompositeOperation = "source-over";
             ctx.globalAlpha = opacity / 100;
-            ctx.strokeStyle = color;
+            ctx.strokeStyle = tool === "eraser" ? (design?.background ?? "#f4f1ea") : color;
             ctx.lineWidth = strokeWidth;
             ctx.lineCap = "round";
             ctx.lineJoin = "round";

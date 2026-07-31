@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -12,6 +13,7 @@ import {
   User,
 } from "lucide-react";
 import { useConsistency } from "@/context/ConsistencyContext";
+import { subscribeUnreadChat } from "@/lib/assets";
 
 const NAV_ITEMS = [
   { href: "/writer",                  label: "Writer's Space", icon: PenLine,       exact: true },
@@ -26,6 +28,14 @@ const NAV_ITEMS = [
 function WriterSidebarInner() {
   const pathname = usePathname();
   const { pendingCount } = useConsistency();
+  const [chatUnread, setChatUnread] = useState(0);
+
+  useEffect(
+    () => subscribeUnreadChat("writer", ({ count }) => setChatUnread(count)),
+    [],
+  );
+
+  const notifCount = pendingCount + chatUnread;
 
   return (
     <aside className="flex w-64 shrink-0 flex-col justify-between border-r border-gold-3/20 px-4 py-6 md:w-72">
@@ -47,9 +57,9 @@ function WriterSidebarInner() {
             >
               <Icon className="h-4 w-4 shrink-0" />
               <span className="flex-1">{item.label}</span>
-              {item.badge && pendingCount > 0 && (
+              {item.badge && notifCount > 0 && (
                 <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-gold-2 px-1 text-[10px] font-bold text-bg-0">
-                  {pendingCount > 99 ? "99+" : pendingCount}
+                  {notifCount > 99 ? "99+" : notifCount}
                 </span>
               )}
             </Link>
