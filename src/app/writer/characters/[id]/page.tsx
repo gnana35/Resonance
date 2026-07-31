@@ -1,19 +1,26 @@
 "use client";
 
-import { use, useMemo, useState } from "react";
+import { use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  Check,
   ChevronLeft,
   ExternalLink,
   Lock,
   LockOpen,
   Pencil,
+  Send,
   RefreshCw,
   Sparkles,
   Trash2,
 } from "lucide-react";
 import { useCharacters } from "@/context/CharactersContext";
+import {
+  sendCharacterToDesigner,
+  hasOpenRequest,
+  subscribeDesignRequests,
+} from "@/lib/designRequests";
 import { useWorld } from "@/context/WorldContext";
 import { CharacterAvatar } from "@/components/CharacterAvatar";
 import { DraftBadge } from "@/components/DraftBadge";
@@ -627,6 +634,15 @@ export default function CharacterDetail({
   const [activeTab, setActiveTab] = useState<Tab>("Profile");
   const [notes, setNotes] = useState(character?.notes ?? "");
   const [showEdit, setShowEdit] = useState(false);
+  const [showSendToDesigner, setShowSendToDesigner] = useState(false);
+  const [requestOpen, setRequestOpen] = useState(false);
+  const [designerBrief, setDesignerBrief] = useState("");
+
+  // Keep the button state in sync, including changes from another tab.
+  useEffect(
+    () => subscribeDesignRequests(() => setRequestOpen(hasOpenRequest(id))),
+    [id],
+  );
   const [showDelete, setShowDelete] = useState(false);
   const [showAddChar, setShowAddChar] = useState(false);
 
@@ -713,6 +729,37 @@ export default function CharacterDetail({
           Back to Characters
         </Link>
         <div className="flex items-center gap-3">
+          {/* Send to Designer — only for Established characters, i.e. once the
+              writer has kept the generated arc. Draft characters are still
+              provisional, so there is nothing settled to brief a designer on. */}
+          {!character.isDraft && (
+            <button
+              onClick={() => setShowSendToDesigner(true)}
+              disabled={requestOpen}
+              title={
+                requestOpen
+                  ? "The designer already has an open request for this character"
+                  : "Send this character's brief to the designer"
+              }
+              className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm transition-colors ${
+                requestOpen
+                  ? "cursor-default border border-gold-3/20 text-ink/40"
+                  : "bg-gold-2/20 text-gold-1 hover:bg-gold-2/30"
+              }`}
+            >
+              {requestOpen ? (
+                <>
+                  <Check className="h-3.5 w-3.5" />
+                  Sent to Designer
+                </>
+              ) : (
+                <>
+                  <Send className="h-3.5 w-3.5" />
+                  Send to Designer
+                </>
+              )}
+            </button>
+          )}
           <button
             onClick={() => setShowEdit(true)}
             className="flex items-center gap-2 rounded-full border border-gold-3/30 px-4 py-2 text-sm text-ink transition-colors hover:border-gold-2/60 hover:text-gold-1"
@@ -1019,6 +1066,58 @@ export default function CharacterDetail({
       )}
       {showAddChar && (
         <NewCharacterModal onClose={() => setShowAddChar(false)} />
+      )}
+
+      {/* Send to Designer — confirms exactly what the designer will receive,
+          so the writer can see the brief before it leaves. */}
+      {showSendToDesigner && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-bg-0/80 backdrop-blur-sm"
+          onClick={() => setShowSendToDesigner(false)}
+        >
+          <div
+            className="mx-4 w-full max-w-md rounded-2xl border border-gold-3/30 bg-bg-1 p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="font-display text-xl text-gold-1">Send to Designer</h2>
+            <p className="mt-1 text-sm text-ink/60">
+              {character.name}&rsquo;s profile, personality, background and story arc
+              will be sent to the designer.
+            </p>
+
+            <label className="mt-4 flex flex-col gap-1 text-sm text-ink/60">
+              Brief for the designer <span className="text-ink/30">(optional)</span>
+              <textarea
+                value={designerBrief}
+                onChange={(e) => setDesignerBrief(e.target.value)}
+                rows={4}
+                autoFocus
+                placeholder="Mood, palette, period, anything specific you want reflected…"
+                className="rounded-lg border border-gold-3/25 bg-bg-0 px-3 py-2 text-sm text-ink placeholder:text-ink/30 focus:border-gold-2/50 focus:outline-none"
+              />
+            </label>
+
+            <div className="mt-5 flex justify-end gap-3">
+              <button
+                onClick={() => setShowSendToDesigner(false)}
+                className="rounded-full border border-gold-3/30 px-4 py-2 text-sm text-ink/70 hover:text-ink"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  sendCharacterToDesigner(character, designerBrief);
+                  setDesignerBrief("");
+                  setShowSendToDesigner(false);
+                }}
+                className="flex items-center gap-2 rounded-full bg-gold-2/20 px-4 py-2 text-sm font-medium text-gold-1 hover:bg-gold-2/30"
+              >
+                <Send className="h-3.5 w-3.5" />
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

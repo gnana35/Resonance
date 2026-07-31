@@ -38,6 +38,7 @@ import type {
 } from "@/data/characters";
 import type { ExtractedEntity, ExtractedRelationship } from "@/app/api/extract-entities/route";
 import { htmlToText, manuscriptFingerprint } from "@/context/WorldContext";
+import { syncPushBackground } from "@/lib/cloudSync";
 
 /* ════════════════════════════════════════════════════════════════════════════
    STORAGE HELPERS
@@ -59,6 +60,9 @@ function loadCharacters(): Character[] {
 
 function saveCharacters(chars: Character[]) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(chars)); } catch { /* quota */ }
+  // Mirror to Supabase. Fire-and-forget: never block a keystroke on the network,
+  // and never let a cloud failure break local editing.
+  syncPushBackground("app_characters", chars);
 }
 
 function uid() {

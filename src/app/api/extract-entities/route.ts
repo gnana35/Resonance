@@ -30,7 +30,8 @@
  */
 
 import type { NextRequest } from "next/server";
-import { GoogleGenerativeAI, SchemaType, type Schema } from "@google/generative-ai";
+import { SchemaType, type Schema } from "@google/generative-ai";
+import { generateJSON, LLMConfigError, activeProvider } from "@/lib/llm";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -245,13 +246,8 @@ Return JSON only.`;
 /* ─── Request handler ───────────────────────────────────────────────────────── */
 
 export async function POST(req: NextRequest): Promise<Response> {
-  const apiKey = process.env.GOOGLE_API_KEY?.trim();
-  if (!apiKey) {
-    return Response.json(
-      { error: "GOOGLE_API_KEY is not configured" },
-      { status: 500 },
-    );
-  }
+  // Provider + key are resolved inside src/lib/llm.ts. A missing key throws
+  // LLMConfigError, handled below.
 
   let body: {
     chapterId:     string;
@@ -282,23 +278,13 @@ export async function POST(req: NextRequest): Promise<Response> {
   const systemPrompt = buildPrompt(chapterTitle, knownEntities);
 
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({
-      model: "gemini-2.5-flash",
-      generationConfig: {
-        temperature: 0.1,        // near-deterministic for extraction
-        maxOutputTokens: 4096,
-        responseMimeType: "application/json",
-        responseSchema: RESPONSE_SCHEMA,
-      },
+    const raw = await generateJSON({
+      system:      systemPrompt,
+      user:        `\n\nCHAPTER TEXT:\n\n${cappedText}`,
+      schema:      RESPONSE_SCHEMA,
+      temperature: 0.1,          // near-deterministic for extraction
+      maxTokens:   4096,
     });
-
-    const result = await model.generateContent([
-      { text: systemPrompt },
-      { text: `\n\nCHAPTER TEXT:\n\n${cappedText}` },
-    ]);
-
-    const raw = result.response.text();
 
     let parsed: ExtractionResult;
     try {
@@ -316,9 +302,15 @@ export async function POST(req: NextRequest): Promise<Response> {
 
     return Response.json(parsed satisfies ExtractionResult, { status: 200 });
   } catch (err: unknown) {
+    if (err instanceof LLMConfigError) {
+      return Response.json({ error: err.message }, { status: 500 });
+    }
     const msg = err instanceof Error ? err.message : String(err);
     // Surface quota / rate-limit as 503
-    const status = msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED") ? 503 : 500;
-    return Response.json({ error: msg }, { status });
+    const status =
+      msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("rate_limit")
+        ? 503
+        : 500;
+    return Response.json({ error: msg, provider: activeProvider() }, { status });
   }
 }

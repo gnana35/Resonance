@@ -19,6 +19,7 @@ import {
   Feather,
 } from "lucide-react";
 import { DocumentEditor, type DocumentEditorHandle } from "@/components/DocumentEditor";
+import { syncPushBackground } from "@/lib/cloudSync";
 
 /* ══════════════════════════════════════════════════════════════════════════
    DATA TYPES
@@ -887,6 +888,15 @@ export default function WriterPage() {
   useEffect(() => { saveJSON(SK.projects, projects); }, [projects]);
   useEffect(() => { saveJSON(SK.parts, parts); }, [parts]);
   useEffect(() => { saveJSON(SK.chapters, chapters); }, [chapters]);
+
+  /* ── Mirror to Supabase ──────────────────────────────────────────────────
+   * Fire-and-forget so typing never blocks on the network. Debounced for
+   * chapters: their content changes on every keystroke. */
+  useEffect(() => { syncPushBackground("app_projects", projects); }, [projects]);
+  useEffect(() => {
+    const t = setTimeout(() => syncPushBackground("app_chapters", chapters), 2000);
+    return () => clearTimeout(t);
+  }, [chapters]);
   useEffect(() => { saveJSON(SK.expProj, [...expandedProjects]); }, [expandedProjects]);
   useEffect(() => { saveJSON(SK.expParts, [...expandedParts]); }, [expandedParts]);
   useEffect(() => { saveJSON(SK.openTabs, openTabs); }, [openTabs]);

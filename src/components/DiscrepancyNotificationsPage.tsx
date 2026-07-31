@@ -18,8 +18,18 @@
  * applyAcceptedNotification so the Story Graph grows in real time.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { applyAcceptedNotification } from "@/lib/storyGraph";
+import {
+  subscribeDesignRequests,
+  markRequestRead,
+  type CharacterDesignRequest,
+} from "@/lib/designRequests";
+import {
+  subscribeDesignShareNotifs,
+  markNotifRead,
+  type DesignShareNotif,
+} from "@/lib/assets";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -592,6 +602,22 @@ export function DiscrepancyNotificationsPage({
   const [filter, setFilter] = useState<FilterTab>("Pending");
   const [detailDisc, setDetailDisc] = useState<Discrepancy | null>(null);
 
+  /* Collaboration inbox — only subscribe to the feed this persona uses. */
+  const [designRequests, setDesignRequests] = useState<CharacterDesignRequest[]>([]);
+  const [sharedAssets,   setSharedAssets]   = useState<DesignShareNotif[]>([]);
+
+  useEffect(() => {
+    if (role !== "designer") return;
+    return subscribeDesignRequests((rows) =>
+      setDesignRequests(rows.filter((r) => r.status === "open")),
+    );
+  }, [role]);
+
+  useEffect(() => {
+    if (role !== "writer") return;
+    return subscribeDesignShareNotifs(setSharedAssets);
+  }, [role]);
+
   // Read the active project id for the graph call (same pattern as every
   // other client component in this repo — localStorage, no context).
   const activeProjectId =
@@ -653,6 +679,143 @@ export function DiscrepancyNotificationsPage({
             : "Consistency checks between your designs and the manuscript. Pending items require the writer's decision."}
         </p>
       </div>
+
+      {/* ── Collaboration inbox ──────────────────────────────────────────
+          Designer: character design requests sent by the writer.
+          Writer:   assets the designer has shared back.
+          Sits above the consistency feed because it is actionable work,
+          not an advisory diff. */}
+      {role === "designer" && designRequests.length > 0 && (
+        <div className="mb-8 flex flex-col gap-3">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-ink/40">
+            Design Requests
+          </h2>
+          {designRequests.map((req) => (
+            <div
+              key={req.id}
+              className={`rounded-2xl border bg-bg-1 p-5 ${
+                req.read ? "border-violet-3/20" : "border-violet-2/50"
+              }`}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <PenTool className="h-4 w-4 shrink-0 text-violet-2" />
+                    <p className="font-display text-lg text-violet-1">
+                      New character design request: {req.characterName}
+                    </p>
+                    {!req.read && (
+                      <span className="rounded-full bg-violet-2/20 px-2 py-0.5 text-[10px] uppercase tracking-wide text-violet-2">
+                        New
+                      </span>
+                    )}
+                  </div>
+                  {req.note && (
+                    <p className="mt-2 text-sm text-ink/80">&ldquo;{req.note}&rdquo;</p>
+                  )}
+                </div>
+                <span className="shrink-0 text-xs text-ink/40">{timeAgo(req.createdAt)}</span>
+              </div>
+
+              {/* The full brief the writer sent */}
+              <dl className="mt-4 grid gap-x-6 gap-y-2 border-t border-violet-3/15 pt-4 sm:grid-cols-2">
+                {([
+                  ["Role",        req.role],
+                  ["Description", req.description],
+                  ["Appearance",  req.appearance],
+                  ["Background",  req.background],
+                  ["Story arc",   req.arcSummary],
+                  ["Personality", req.personality.length ? req.personality.join(", ") : null],
+                ] as const)
+                  .filter(([, v]) => Boolean(v))
+                  .map(([label, v]) => (
+                    <div key={label}>
+                      <dt className="text-[11px] uppercase tracking-wider text-ink/40">{label}</dt>
+                      <dd className="mt-0.5 text-sm text-ink/80">{v}</dd>
+                    </div>
+                  ))}
+              </dl>
+
+              <div className="mt-4 flex items-center gap-3">
+                <Link
+                  href="/designer"
+                  onClick={() => markRequestRead(req.id)}
+                  className="flex items-center gap-2 rounded-full bg-violet-2/20 px-4 py-2 text-sm font-medium text-violet-1 hover:bg-violet-2/30"
+                >
+                  <PenTool className="h-3.5 w-3.5" />
+                  Open Sketchpad
+                </Link>
+                {!req.read && (
+                  <button
+                    onClick={() => markRequestRead(req.id)}
+                    className="text-xs text-ink/50 hover:text-ink"
+                  >
+                    Mark read
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {role === "writer" && sharedAssets.length > 0 && (
+        <div className="mb-8 flex flex-col gap-3">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-ink/40">
+            New Designs Shared With You
+          </h2>
+          {sharedAssets.map((notif) => (
+            <div
+              key={notif.id}
+              className={`flex items-start gap-4 rounded-2xl border bg-bg-1 p-5 ${
+                notif.read ? "border-gold-3/20" : "border-gold-2/50"
+              }`}
+            >
+              {notif.previewUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={notif.previewUrl}
+                  alt={notif.assetName}
+                  className="h-20 w-20 shrink-0 rounded-lg object-cover"
+                />
+              ) : (
+                <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-lg bg-bg-0">
+                  <PenTool className="h-6 w-6 text-gold-2/40" />
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-display text-lg text-gold-1">{notif.assetName}</p>
+                  <span className="shrink-0 text-xs text-ink/40">{timeAgo(notif.createdAt)}</span>
+                </div>
+                <p className="mt-1 text-sm text-ink/60">
+                  The designer shared a new design for your review.
+                </p>
+                {notif.description && (
+                  <p className="mt-1 text-sm text-ink/80">{notif.description}</p>
+                )}
+                <div className="mt-3 flex items-center gap-3">
+                  <Link
+                    href="/designer/assets"
+                    onClick={() => markNotifRead(notif.id)}
+                    className="rounded-full bg-gold-2/20 px-4 py-2 text-sm font-medium text-gold-1 hover:bg-gold-2/30"
+                  >
+                    Review design
+                  </Link>
+                  {!notif.read && (
+                    <button
+                      onClick={() => markNotifRead(notif.id)}
+                      className="text-xs text-ink/50 hover:text-ink"
+                    >
+                      Mark read
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Filter tabs */}
       <div className="mb-6 flex gap-2 overflow-x-auto pb-1">

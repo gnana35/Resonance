@@ -25,7 +25,7 @@
 
 import type { NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { GoogleGenerativeAI, type Content } from "@google/generative-ai";
+import { streamChat } from "@/lib/llm";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -335,37 +335,24 @@ async function persistMessage(
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
+/**
+ * Delegates to the provider shim in src/lib/llm.ts so this route follows
+ * LLM_PROVIDER (groq | gemini) like the extraction route does.
+ * Name kept for the existing call sites.
+ */
 async function* streamGemini(
   systemPrompt: string,
   history: ChatMessage[],
   userMessage: string,
-  apiKey: string,
+  _apiKey: string,
 ): AsyncGenerator<string, void, unknown> {
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({
-    model: "gemini-2.5-flash",
-    systemInstruction: systemPrompt,
-    generationConfig: {
-      temperature: 0.4,
-      maxOutputTokens: 1200,
-    },
+  yield* streamChat({
+    system:      systemPrompt,
+    history,
+    message:     userMessage,
+    temperature: 0.4,
+    maxTokens:   1200,
   });
-
-  // Gemini uses "user" and "model" roles; map "assistant" → "model"
-  const contents: Content[] = [
-    ...history.map((m) => ({
-      role: m.role === "assistant" ? "model" : "user",
-      parts: [{ text: m.content }],
-    })),
-    { role: "user", parts: [{ text: userMessage }] },
-  ];
-
-  const result = await model.generateContentStream({ contents });
-
-  for await (const chunk of result.stream) {
-    const delta = chunk.text();
-    if (delta) yield delta;
-  }
 }
 
 // ─── POST handler ──────────────────────────────────────────────────────────────

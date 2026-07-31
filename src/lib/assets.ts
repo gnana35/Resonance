@@ -209,31 +209,47 @@ export function subscribeAssets(
  * Returns { promise } — resolves with the new AssetRecord.
  * Also exposes a fake task.on() so callers that track upload progress still work.
  */
+type ProgressSnap = { bytesTransferred: number; totalBytes: number };
+
+/**
+ * Callbacks are held on a mutable object rather than in `let` bindings.
+ *
+ * With `let cb: Fn | null = null`, TypeScript's control-flow analysis narrows
+ * the binding to `null` inside the async closure below — it cannot see that
+ * task.on() assigns it first — so `cb?.()` resolves to `never` and errors with
+ * "This expression is not callable". Object properties are not narrowed that
+ * way, so this keeps the same runtime behaviour and typechecks.
+ */
+type UploadCallbacks = {
+  progress?: (snap: ProgressSnap) => void;
+  error?:    (err: Error) => void;
+  complete?: () => void;
+};
+
 export function uploadAsset(file: File): {
   task: {
     on: (
       _event: string,
-      onProgress: ((snap: { bytesTransferred: number; totalBytes: number }) => void) | null,
-      onError:    ((err: Error) => void) | null,
-      onComplete: (() => void) | null,
+      onProgress?: ((snap: ProgressSnap) => void) | null,
+      onError?:    ((err: Error) => void) | null,
+      onComplete?: (() => void) | null,
     ) => void;
   };
   promise: Promise<AssetRecord>;
 } {
-  let _onProgress: ((snap: { bytesTransferred: number; totalBytes: number }) => void) | null = null;
-  let _onError:    ((err: Error) => void) | null = null;
-  let _onComplete: (() => void) | null = null;
+  // onComplete is optional: ReferencesPanel subscribes to progress and error only.
+  const cb: UploadCallbacks = {};
 
   const task = {
     on(
       _event: string,
-      onProgress: ((snap: { bytesTransferred: number; totalBytes: number }) => void) | null,
-      onError:    ((err: Error) => void) | null,
-      onComplete: (() => void) | null,
+      onProgress?: ((snap: ProgressSnap) => void) | null,
+      onError?:    ((err: Error) => void) | null,
+      onComplete?: (() => void) | null,
     ) {
-      _onProgress = onProgress;
-      _onError    = onError;
-      _onComplete = onComplete;
+      cb.progress = onProgress ?? undefined;
+      cb.error    = onError    ?? undefined;
+      cb.complete = onComplete ?? undefined;
     },
   };
 
@@ -245,9 +261,9 @@ export function uploadAsset(file: File): {
 
       if (isImg) {
         // Report indeterminate progress
-        _onProgress?.({ bytesTransferred: 0, totalBytes: file.size });
+        cb.progress?.({ bytesTransferred: 0, totalBytes: file.size });
         previewUrl = await uploadToStorage(path, file, file.type);
-        _onProgress?.({ bytesTransferred: file.size, totalBytes: file.size });
+        cb.progress?.({ bytesTransferred: file.size, totalBytes: file.size });
       }
 
       // For non-images we store as a data-URL so we can still show icons
@@ -274,10 +290,10 @@ export function uploadAsset(file: File): {
       persistAssets(records);
       notifyChange();
 
-      _onComplete?.();
+      cb.complete?.();
       return record;
     } catch (err) {
-      _onError?.(err as Error);
+      cb.error?.(err as Error);
       throw err;
     }
   })();

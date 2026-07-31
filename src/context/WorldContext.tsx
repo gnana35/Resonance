@@ -42,6 +42,7 @@ import type {
   ProjectWorldState,
 } from "@/data/world";
 import type { ExtractedEntity, ExtractionResult } from "@/app/api/extract-entities/route";
+import { syncPushBackground } from "@/lib/cloudSync";
 
 /* ═══════════════════════════════════════════════════════════════════════════
    STORAGE HELPERS
@@ -512,6 +513,13 @@ function loadAllWorldStates(): Record<string, ProjectWorldState> {
 
 function saveAllWorldStates(states: Record<string, ProjectWorldState>) {
   saveJSON(WORLD_SK, states);
+
+  // Mirror entities + relationships to Supabase so the World Map survives a
+  // cache clear and is visible to the rest of the team. Fire-and-forget:
+  // derivation must never block on the network.
+  const all = Object.values(states);
+  syncPushBackground("app_world_entities",      all.flatMap((s) => s.entities));
+  syncPushBackground("app_world_relationships", all.flatMap((s) => s.relationships));
 }
 
 function emptyState(projectId: string): ProjectWorldState {
