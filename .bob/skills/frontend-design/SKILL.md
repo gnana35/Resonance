@@ -1,22 +1,33 @@
-\---
-
+---
 name: frontend-design
+description: Apply Resonance's design system — typography, spacing, colour tokens and component patterns — when building any UI
+---
 
-description: Apply consistent design system rules — typography, spacing, color tokens, and component patterns — when building any UI
+# Resonance Design System
 
-\---
+Scope: this skill applies only within this project.
 
+## Color tokens
+--gold-1: #f7e7b8
+--gold-2: #d9a84e
+--gold-3: #8a6a2f
+--bg-0:   #03040a
+--bg-1:   #0a0e1c
+--ink:    #cfd6e6
 
+## Typography
+- Display/titles: 'Cinzel', serif, wide letter-spacing, gold gradient
+- Body/UI: 'Cormorant Garamond', Georgia, serif
 
-When building UI components:
+## Spacing
+8px base grid. Section padding 64px+ desktop, 24px mobile.
 
-\- Use an 8px base spacing grid
+## Motion
+- Ease-in on zoom-in, ease-out on zoom-out, never linear
+- Sidebar active/hover: background highlight + left border accent
+- Crossfades 400-600ms
 
-\- Use a defined typography scale (not arbitrary font sizes)
-
-\- Use color tokens (primary, neutral, accent) — no random hex codes
-
-\- Follow consistent component patterns for buttons, cards, and forms
-
-\- Avoid generic AI-default aesthetic — no default Tailwind blue/gray-only palettes
-
+## Avoid
+- Generic Tailwind default blues/grays
+- Non-serif titles
+- Abrupt cuts — everything should feel like continuous motion
