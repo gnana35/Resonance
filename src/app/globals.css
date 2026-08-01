@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+:root {
+  --gold-1: #f7e7b8;
+  --gold-2: #d9a84e;
+  --gold-3: #8a6a2f;
+  --violet-1: #e0d9f7;
+  --violet-2: #a78bfa;
+  --violet-3: #5b4d8f;
+  --bg-0: #03040a;
+  --bg-1: #0a0e1c;
+  --ink: #cfd6e6;
+}
+
+/* ── Sepia theme ─────────────────────────────────────────────────────────── */
+[data-theme="sepia"] {
+  --bg-0: #1e1610;
+  --bg-1: #2c2118;
+  --ink: #e8d8b8;
+  --gold-1: #f5e6c0;
+  --gold-2: #c9922a;
+  --gold-3: #8a6a2f;
+  --violet-1: #d4c9a8;
+  --violet-2: #b89d6a;
+  --violet-3: #7a6040;
+}
+
+/* ── Light theme ─────────────────────────────────────────────────────────── */
+[data-theme="light"] {
+  --bg-0: #f5f0e8;
+  --bg-1: #ede6d8;
+  --ink: #2a2420;
+  --gold-1: #6b4c10;
+  --gold-2: #a0711a;
+  --gold-3: #c9a84e;
+  --violet-1: #3d2b6e;
+  --violet-2: #6d4fc0;
+  --violet-3: #9b7de0;
+}
+
+@theme inline {
+  --color-gold-1: var(--gold-1);
+  --color-gold-2: var(--gold-2);
+  --color-gold-3: var(--gold-3);
+  --color-violet-1: var(--violet-1);
+  --color-violet-2: var(--violet-2);
+  --color-violet-3: var(--violet-3);
+  --color-bg-0: var(--bg-0);
+  --color-bg-1: var(--bg-1);
+  --color-ink: var(--ink);
+  --font-display: var(--font-cinzel);
+  --font-body: var(--font-cormorant);
+}
+
+body {
+  background: var(--bg-0);
+  color: var(--ink);
+  font-family: var(--font-body), Georgia, serif;
+}
+
+/*
+ * Toast entrance. Animates position only, never opacity: a hidden page freezes
+ * the animation timeline mid-flight, and a toast that is holding `opacity: 0`
+ * is a notification the writer never sees. Sliding degrades safely — worst
+ * case it sits 12px low and fully legible.
+ */
+@keyframes toast-in {
+  from {
+    transform: translateY(12px);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.animate-toast-in {
+  animation: toast-in 200ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-toast-in {
+    animation: none;
+  }
+}
