@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, Eye, EyeOff, Lock, Mail, X } from "lucide-react";
-import { signInWithPopup } from "firebase/auth";
+import { signInWithPopup, signInWithEmailAndPassword } from "firebase/auth";
 import { auth, googleProvider } from "@/lib/firebase";
 
 function GoogleIcon() {
@@ -50,10 +50,42 @@ export function LoginModal({
     router.push("/onboarding");
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  const [formError, setFormError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  /** Both fields must be filled before the button does anything. */
+  const canSubmit = email.trim().length > 0 && password.length > 0 && !submitting;
+
+  /**
+   * Previously this only logged to the console and proceeded — the email/password
+   * path never authenticated, so anyone could get in with anything. Now it signs
+   * in against Firebase and only advances on success.
+   */
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    console.log("login attempt", { email, rememberMe });
-    proceedToOnboarding();
+    if (!canSubmit) return;
+
+    setFormError(null);
+    setSubmitting(true);
+    try {
+      await signInWithEmailAndPassword(auth, email.trim(), password);
+      proceedToOnboarding();
+    } catch (err) {
+      const code = (err as { code?: string }).code ?? "";
+      // Firebase returns invalid-credential for both wrong password and unknown
+      // account, so keep the message generic rather than confirming which.
+      setFormError(
+        code.includes("invalid-credential") || code.includes("wrong-password") || code.includes("user-not-found")
+          ? "Email or password is incorrect."
+          : code.includes("too-many-requests")
+          ? "Too many attempts. Try again shortly."
+          : code.includes("invalid-email")
+          ? "That email address is not valid."
+          : "Could not sign in. Please try again.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   async function handleGoogleSignIn() {
@@ -179,12 +211,21 @@ export function LoginModal({
                 </a>
               </div>
 
+              {formError && (
+                <p className="text-sm text-red-400" role="alert">{formError}</p>
+              )}
+
               <button
                 type="submit"
-                className="mt-2 flex items-center justify-center gap-2 rounded-full bg-gold-2 py-3 font-medium text-bg-0 transition-colors hover:bg-gold-1"
+                disabled={!canSubmit}
+                className={`mt-2 flex items-center justify-center gap-2 rounded-full py-3 font-medium transition-colors ${
+                  canSubmit
+                    ? "bg-gold-2 text-bg-0 hover:bg-gold-1"
+                    : "cursor-not-allowed bg-gold-2/30 text-bg-0/50"
+                }`}
               >
-                Log in
-                <ArrowRight className="h-4 w-4" />
+                {submitting ? "Signing in…" : "Log in"}
+                {!submitting && <ArrowRight className="h-4 w-4" />}
               </button>
             </form>
 
